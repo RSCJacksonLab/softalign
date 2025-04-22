@@ -1,0 +1,31 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.7",
+  "pybind11>=2.10",
+  "numpy",
+  "cmake>=3.18",
+  "ninja"
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "softalign"
+version = "0.1.0"
+description = "Fast probabilistic protein soft sequence alignment with AVX and OpenMP"
+authors = [{ name = "Matthew A. Spence", email="matthew.spence@anu.edu.au" }]
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = [
+  "numpy>=1.23"
+]
+
+[project.urls]
+Homepage = "https://github.com/RSCJacksonLab/softalign"
+Issues   = "https://github.com/RSCJacksonLab/softalign/issues"
+
+[tool.scikit-build]
+wheel.expand-macos-universal-tags = true
+wheel.py-api = "cp39"
+cmake.verbose = true
+sdist.include = ["include/**", "src/**", "python/**", "CMakeLists.txt"]
