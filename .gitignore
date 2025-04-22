@@ -36,3 +36,6 @@
 
 # Dist
 dist/
+
+# Python debugging
+debugging.py
