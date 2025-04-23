@@ -73,7 +73,6 @@ def profile_align(profile1: np.ndarray,
                   pairwise_align: Any = pairwise_align,
                   gap_open: float = 10.0,
                   gap_extend: float = 0.5,
-                  metric: Literal['jensen_shannon', 'kl_divergence', 'hybrid'] = 'hybrid',
                   substitution_matrix: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
                   alpha: float = 0.5) -> tuple:
     """
@@ -124,7 +123,6 @@ def profile_align(profile1: np.ndarray,
                                                        avg_profile2[:, :20], 
                                                        gap_open,
                                                        gap_extend,
-                                                       metric,
                                                        substitution_matrix,
                                                        alpha)
     
@@ -219,7 +217,6 @@ def progressive_alignment(sequences: List,
             pairwise_align,
             gap_open,
             gap_extend,
-            metric,
             substitution_matrix,
             alpha
         )
@@ -274,7 +271,6 @@ def refine_alignment(aligned_sequences,
                      pairwise_align: Any = pairwise_align,
                      gap_open=10.0,
                      gap_extend=0.5,
-                     metric='hybrid',
                      substitution_matrix="BLOSUM62",
                      alpha=0.5):
     """
@@ -333,7 +329,6 @@ def refine_alignment(aligned_sequences,
             pairwise_align,
             gap_open,
             gap_extend,
-            metric,
             substitution_matrix,
             alpha)
         
