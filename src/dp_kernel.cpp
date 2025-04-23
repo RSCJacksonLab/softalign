@@ -127,23 +127,25 @@ nw_affine(const ProbSeq& a, const ProbSeq& b, const SubstMat& M,
     else if (Xp[L2] >= Yp[L2]) state=1;
     else state=2;
 
-    while (i>0 || j>0) {
-        if (state==0) {
+    while (i > 0 || j > 0) {
+        if (state == 0) {                       // match / mismatch
             push_col(bufA, a.row(i-1));
             push_col(bufB, b.row(j-1));
-            state = TB[idx(i,j)];
             --i; --j;
-        } else if (state==1) {                 // gap in b
+        }
+        else if (state == 1) {                  // gap in B (vertical)
             push_col(bufA, a.row(i-1));
             push_col(bufB, nullptr, true);
-            state = (Mp[j]-gap_open > Xp[j]-gap_ext)?0:1;
             --i;
-        } else {                               // gap in a
+        }
+        else {                                  // gap in A (horizontal)
             push_col(bufA, nullptr, true);
             push_col(bufB, b.row(j-1));
-            state = (Mp[j-1]-gap_open > Yp[j-1]-gap_ext)?0:2;
             --j;
         }
+    
+        /* ALWAYS fetch the next direction from traceback flags */
+        state = TB[idx(i, j)];
     }
     std::reverse(bufA.begin(), bufA.end());
     std::reverse(bufB.begin(), bufB.end());
