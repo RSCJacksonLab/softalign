@@ -39,3 +39,6 @@ dist/
 
 # Python debugging
 debugging.py
+
+# VSCode
+.vscode/

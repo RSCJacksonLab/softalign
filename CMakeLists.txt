@@ -11,3 +11,7 @@ target_include_directories(_softalign PRIVATE include)
 target_compile_features(_softalign PRIVATE cxx_std_17)
 target_compile_options(_softalign PRIVATE -O3 -ffast-math -march=native)
 target_link_libraries(_softalign PRIVATE OpenMP::OpenMP_CXX)
+
+install(TARGETS _softalign
+        LIBRARY DESTINATION "${SKBUILD_PLATLIB_DIR}/softalign"   # Unix (.so / .dylib)
+        RUNTIME DESTINATION "${SKBUILD_PLATLIB_DIR}/softalign")  # Windows (.pyd)
