@@ -69,7 +69,3 @@ sdist.include = [
   "softalign/**",
   "CMakeLists.txt"
 ]
-
-[tool.scikit-build.packaging]
-packages    = ["softalign"]
-package-dir = { "" = "softalign" }
