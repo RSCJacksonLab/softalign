@@ -158,7 +158,6 @@ def progressive_alignment(sequences: List,
                           pairwise_align: Any = pairwise_align,
                           gap_open: float = 10.0,
                           gap_extend: float = 0.5,
-                          metric: Literal['jensen_shannon', 'kl_divergence', 'hybrid'] = 'hybrid',
                           substitution_matrix: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
                           alpha: float = 0.5):
     """
@@ -467,7 +466,6 @@ def align_soft_sequences_with_blosum(sequences: List,
                                                       pairwise_align,
                                                       gap_open,
                                                       gap_extend,
-                                                      distance_metric,
                                                       matrix,
                                                       alpha)
     
@@ -477,7 +475,6 @@ def align_soft_sequences_with_blosum(sequences: List,
                                                       pairwise_align,
                                                       gap_open,
                                                       gap_extend,
-                                                      distance_metric,
                                                       matrix,
                                                       alpha)
         if not improved:
