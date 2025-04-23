@@ -126,25 +126,29 @@ nw_affine(const ProbSeq& a, const ProbSeq& b, const SubstMat& M,
     uint8_t state = TB[idx(i, j)];    // initial direction comes from traceback
 
     while (i > 0 || j > 0) {
-        if (state == 0) {                       // match / mismatch
+        if (state == 0) {                       // inside M
             push_col(bufA, a.row(i-1));
             push_col(bufB, b.row(j-1));
             --i; --j;
+            state = TB[idx(i, j)];              // next move comes from TB
         }
-        else if (state == 1) {                  // gap in B (vertical)
+        else if (state == 1) {                  // inside X  (gap in B)
             push_col(bufA, a.row(i-1));
             push_col(bufB, nullptr, true);
             --i;
+            /* decide whether X continues or switches to M */
+            state = (Mp[j] - gap_open > Xp[j] - gap_ext) ? 0 : 1;
         }
-        else {                                  // gap in A (horizontal)
+        else {                                  // inside Y  (gap in A)
             push_col(bufA, nullptr, true);
             push_col(bufB, b.row(j-1));
             --j;
+            /* decide whether Y continues or switches to M */
+            state = (Mp[j-1] - gap_open > Yp[j-1] - gap_ext) ? 0 : 2;
         }
-    
-        /* ALWAYS fetch the next direction from traceback flags */
-        state = TB[idx(i, j)];
     }
+
+
     std::reverse(bufA.begin(), bufA.end());
     std::reverse(bufB.begin(), bufB.end());
 
