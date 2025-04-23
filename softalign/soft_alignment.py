@@ -351,7 +351,7 @@ def align_soft_sequences_with_blosum(sequences: List,
                                      distance_metric: Literal['jensen_shannon', 'kl_divergence', 'hybrid'] = 'hybrid',
                                      substitution_matrix: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
                                      alpha: float = 0.5,
-                                     max_iterations: int = 3):
+                                     max_iterations: int = 0): #TODO: update with iterations of refinement.
     """
     Align a list of soft sequences (probability distributions over amino acids)
     using substitution matrices for scoring.
@@ -480,4 +480,4 @@ def align_soft_sequences_with_blosum(sequences: List,
         if not improved:
             break
     
-    return alignment, score
+    return alignment
