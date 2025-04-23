@@ -137,18 +137,34 @@ def profile_align(profile1: np.ndarray,
         is_gap2 = aligned_avg2[i, 20] > 0.5
         
         if not is_gap1:
-            aligned_profile1[:, i, :] = profile1[:, pos1, :]
+            if pos1 < profile1.shape[1]:
+                aligned_profile1[:, i, :] = profile1[:, pos1, :]
+            else:
+                aligned_profile1[:, i, :] = 0
+                aligned_profile1[:, i, 20] = 1.0
             pos1 += 1
-        else:
-            aligned_profile1[:, i, :] = 0
-            aligned_profile1[:, i, 20] = 1.0
+        
+        # if not is_gap1:
+        #     aligned_profile1[:, i, :] = profile1[:, pos1, :]
+        #     pos1 += 1
+        # else:
+        #     aligned_profile1[:, i, :] = 0
+        #     aligned_profile1[:, i, 20] = 1.0
         
         if not is_gap2:
-            aligned_profile2[:, i, :] = profile2[:, pos2, :]
+            if pos2 < profile2.shape[1]:
+                aligned_profile2[:, i, :] = profile2[:, pos2, :]
+            else:
+                aligned_profile2[:, i, :] = 0
+                aligned_profile2[:, i, 20] = 1.0
             pos2 += 1
-        else:
-            aligned_profile2[:, i, :] = 0
-            aligned_profile2[:, i, 20] = 1.0
+
+        # if not is_gap2:
+        #     aligned_profile2[:, i, :] = profile2[:, pos2, :]
+        #     pos2 += 1
+        # else:
+        #     aligned_profile2[:, i, :] = 0
+        #     aligned_profile2[:, i, 20] = 1.0
     
     return aligned_profile1, aligned_profile2, score
 
