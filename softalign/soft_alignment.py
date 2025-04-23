@@ -144,13 +144,6 @@ def profile_align(profile1: np.ndarray,
                 aligned_profile1[:, i, 20] = 1.0
             pos1 += 1
         
-        # if not is_gap1:
-        #     aligned_profile1[:, i, :] = profile1[:, pos1, :]
-        #     pos1 += 1
-        # else:
-        #     aligned_profile1[:, i, :] = 0
-        #     aligned_profile1[:, i, 20] = 1.0
-        
         if not is_gap2:
             if pos2 < profile2.shape[1]:
                 aligned_profile2[:, i, :] = profile2[:, pos2, :]
@@ -159,13 +152,6 @@ def profile_align(profile1: np.ndarray,
                 aligned_profile2[:, i, 20] = 1.0
             pos2 += 1
 
-        # if not is_gap2:
-        #     aligned_profile2[:, i, :] = profile2[:, pos2, :]
-        #     pos2 += 1
-        # else:
-        #     aligned_profile2[:, i, :] = 0
-        #     aligned_profile2[:, i, 20] = 1.0
-    
     return aligned_profile1, aligned_profile2, score
 
 
@@ -367,7 +353,7 @@ def align_soft_sequences_with_blosum(sequences: List,
                                      distance_metric: Literal['jensen_shannon', 'kl_divergence', 'hybrid'] = 'hybrid',
                                      substitution_matrix: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
                                      alpha: float = 0.5,
-                                     max_iterations: int = 0): #TODO: update with iterations of refinement.
+                                     max_iterations: int = 3):
     """
     Align a list of soft sequences (probability distributions over amino acids)
     using substitution matrices for scoring.
