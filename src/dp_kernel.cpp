@@ -70,18 +70,26 @@ nw_affine(const ProbSeq& a, const ProbSeq& b, const SubstMat& M,
           float gap_open, float gap_ext, float alpha)
 {
     const int L1 = a.L, L2 = b.L;
-    const int band = 64;                         
-
+                      
     /* rolling DP rows */
     std::vector<f32> Mp(L2+1,  NEG_INF), Xp(L2+1, NEG_INF), Yp(L2+1, NEG_INF),
                      Mc(L2+1), Xc(L2+1), Yc(L2+1);
     Mp[0] = 0.f;
 
-    std::vector<uint8_t> TB((L1+1)*(2*band+1), 0);
-    auto idx = [&](int i,int j){ return i*(2*band+1) + (j-(i-band)); };
+    for (int j = 1; j <= L2; ++j) {
+        Mp[j] = NEG_INF;
+        Xp[j] = NEG_INF;
+        Yp[j] = -gap_open - (j-1) * gap_ext;    // cost of j-column gap in seq-A
+    }
 
-    for (int i = 1; i <= L1; ++i) {
-        Mc[0]=NEG_INF; Xc[0]=-gap_open-(i-1)*gap_ext; Yc[0]=NEG_INF;
+    const int band = std::max(L1, L2);                 // no banding
+    std::vector<uint8_t> TB((L1+1)*(L2+1), 0);         // full (L1+1)×(L2+1) grid
+    auto idx = [&](int i, int j){ return i*(L2+1) + j; };
+
+    for (int i = 1; i <= L1; ++i) { // gap in seq-B on left edge.
+        Mc[0]=NEG_INF;
+        Xc[0]=-gap_open-(i-1)*gap_ext;
+        Yc[0]=NEG_INF;
 
         #pragma omp parallel for schedule(static)
         for (int j = std::max(1,i-band); j <= std::min(L2,i+band); ++j) {
