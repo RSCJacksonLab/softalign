@@ -49,7 +49,12 @@ float hybrid_score(const float* p,
     }
     float js = std::sqrt(std::max(0.f, 0.5f * (kl1 + kl2))); // clamp sqrt.
 
-    return alpha*js + (1.f-alpha)*blos_dist;
+    float dist = alpha * js + (1.f - alpha) * blos_dist;
+
+    if (!std::isfinite(dist))
+        dist = 1e6f;                    
+
+    return dist;
 }
 
 constexpr float NEG_INF = -1e30f;
