@@ -96,10 +96,6 @@ def profile_align(profile1: np.ndarray,
     gap_extend : float
         Gap extension penalty.
     
-    metric : str, default=`hybrid`
-        Distance metric to use ('jensen_shannon', 'kl_divergence', or
-        'hybrid').
-
     substitution_matrix : str or numpy.ndarray, default=`BLOSUM62`
         Substitution matrix name or matrix array
         
@@ -182,10 +178,6 @@ def progressive_alignment(sequences: List,
     gap_extend : float
         Gap extension penalty.
     
-    metric : str, default=`hybrid`
-        Distance metric to use ('jensen_shannon', 'kl_divergence', or
-        'hybrid').
-
     substitution_matrix : str or numpy.ndarray, default=`BLOSUM62`
         Substitution matrix name or matrix array
         
@@ -291,10 +283,6 @@ def refine_alignment(aligned_sequences,
     gap_extend : float
         Gap extension penalty.
     
-    metric : str, default=`hybrid`
-        Distance metric to use ('jensen_shannon', 'kl_divergence', or
-        'hybrid').
-
     substitution_matrix : str or numpy.ndarray, default=`BLOSUM62`
         Substitution matrix name or matrix array
         
@@ -372,10 +360,6 @@ def align_soft_sequences_with_blosum(sequences: List,
     gap_extend : float
         Gap extension penalty.
     
-    distance_metric : str, default=`hybrid`
-        Distance metric to use ('jensen_shannon', 'kl_divergence', or
-        'hybrid').
-
     substitution_matrix : str or numpy.ndarray, default=`BLOSUM62`
         Substitution matrix name or matrix array
         
@@ -482,4 +466,4 @@ def align_soft_sequences_with_blosum(sequences: List,
         if not improved:
             break
     
-    return alignment
+    return alignment, score

@@ -8,9 +8,7 @@
 namespace sa {
 namespace {
 
-/*─────────────────────────────────*
- * Sum the lanes of an __m256      *
- *─────────────────────────────────*/
+
 inline float hsum(__m256 v) {
     __m128 hi = _mm256_extractf128_ps(v, 1);
     __m128 lo = _mm256_castps256_ps128(v);
@@ -20,15 +18,14 @@ inline float hsum(__m256 v) {
     return _mm_cvtss_f32(s);
 }
 
-/*─────────────────────────────────*
- * JS + BLOSUM hybrid score        *
- *─────────────────────────────────*/
+
+// JS + BLOSUM hybrid score
 float hybrid_score(const float* p,
                    const float* q,
                    const float* M,
                    float         alpha)
 {
-    /* BLOSUM part */
+    // BLOSUM part
     __m256 acc = _mm256_setzero_ps();
     for (int k = 0; k < 16; k += 8) {
         __m256 pv = _mm256_loadu_ps(p + k);
@@ -42,7 +39,7 @@ float hybrid_score(const float* p,
     float blosum    = hsum(acc) + tail;
     float blos_dist = 1.f - blosum;
 
-    /* Jensen–Shannon part */
+    // Jensen–Shannon part
     constexpr float EPS = 1e-8f;
     float kl1 = 0.f, kl2 = 0.f;
     for (int k = 0; k < 20; ++k) {
@@ -60,9 +57,6 @@ float hybrid_score(const float* p,
 
 static constexpr float NEG_INF = -1e30f;
 
-/*─────────────────────────────────*
- * Push one column (20 floats + gap flag) *
- *─────────────────────────────────*/
 inline void push_col(std::vector<f32>& dst,
                      const f32*        src,
                      bool              gap = false)
@@ -78,9 +72,8 @@ inline void push_col(std::vector<f32>& dst,
 
 } // anonymous namespace
 
-/*───────────────────────────────────────────────────────────────────*
- | Needleman–Wunsch with affine gaps                                 |
- *───────────────────────────────────────────────────────────────────*/
+ //Needleman–Wunsch with affine gaps
+
 AlignmentResult
 nw_affine(const ProbSeq&    a,
           const ProbSeq&    b,
