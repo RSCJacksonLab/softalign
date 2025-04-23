@@ -1,5 +1,6 @@
 #include "softalign.hpp"
 #include <immintrin.h>
+#include <vector>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
@@ -7,7 +8,9 @@
 namespace sa {
 namespace {
 
-/* ───────────────────────── helpers ──────────────────────────────── */
+/*─────────────────────────────────*
+ * Sum the lanes of an __m256      *
+ *─────────────────────────────────*/
 inline float hsum(__m256 v) {
     __m128 hi = _mm256_extractf128_ps(v, 1);
     __m128 lo = _mm256_castps256_ps128(v);
@@ -17,147 +20,171 @@ inline float hsum(__m256 v) {
     return _mm_cvtss_f32(s);
 }
 
-float hybrid_score(const float* p, const float* q,
-                   const float* M, float alpha)
+/*─────────────────────────────────*
+ * JS + BLOSUM hybrid score        *
+ *─────────────────────────────────*/
+float hybrid_score(const float* p,
+                   const float* q,
+                   const float* M,
+                   float         alpha)
 {
     /* BLOSUM part */
     __m256 acc = _mm256_setzero_ps();
     for (int k = 0; k < 16; k += 8) {
-        acc = _mm256_fmadd_ps(_mm256_loadu_ps(p + k),
-                              _mm256_mul_ps(_mm256_loadu_ps(M + k*20),
-                                            _mm256_loadu_ps(q + k)),
-                              acc);
+        __m256 pv = _mm256_loadu_ps(p + k);
+        __m256 qv = _mm256_loadu_ps(q + k);
+        __m256 mv = _mm256_loadu_ps(M + k*20);
+        acc = _mm256_fmadd_ps(pv, _mm256_mul_ps(mv, qv), acc);
     }
     float tail = 0.f;
     for (int k = 16; k < 20; ++k)
         tail += p[k] * M[k*20 + k] * q[k];
-    float blos_dist = 1.f - (hsum(acc) + tail);        /* ∈[0,1] */
+    float blosum    = hsum(acc) + tail;
+    float blos_dist = 1.f - blosum;
 
     /* Jensen–Shannon part */
     constexpr float EPS = 1e-8f;
     float kl1 = 0.f, kl2 = 0.f;
     for (int k = 0; k < 20; ++k) {
-        float pk = p[k] + EPS, qk = q[k] + EPS;
+        float pk = p[k] + EPS;
+        float qk = q[k] + EPS;
         float m  = 0.5f * (pk + qk);
         kl1 += pk * std::log(pk / m);
         kl2 += qk * std::log(qk / m);
     }
     float js = std::sqrt(std::max(0.f, 0.5f * (kl1 + kl2)));
 
-    float d  = alpha * js + (1.f - alpha) * blos_dist;
-    return std::isfinite(d) ? d : 1e6f;                /* guard */
+    float d = alpha * js + (1.f - alpha) * blos_dist;
+    return std::isfinite(d) ? d : 1e6f;
 }
 
-constexpr float NEG_INF = -1e30f;
+static constexpr float NEG_INF = -1e30f;
 
+/*─────────────────────────────────*
+ * Push one column (20 floats + gap flag) *
+ *─────────────────────────────────*/
 inline void push_col(std::vector<f32>& dst,
                      const f32*        src,
                      bool              gap = false)
 {
-    if (gap) { dst.insert(dst.end(), 20, 0.f); dst.push_back(1.f); }
-    else      { dst.insert(dst.end(), src, src + 20); dst.push_back(0.f); }
+    if (gap) {
+        dst.insert(dst.end(), 20, 0.f);
+        dst.push_back(1.f);
+    } else {
+        dst.insert(dst.end(), src, src + 20);
+        dst.push_back(0.f);
+    }
 }
-/* ────────────────────────────────────────────────────────────────── */
-} // anon
 
-/* ================================================================= */
-/*  Needleman–Wunsch + affine gaps                                    */
-/* ================================================================= */
+} // anonymous namespace
+
+/*───────────────────────────────────────────────────────────────────*
+ | Needleman–Wunsch with affine gaps                                 |
+ *───────────────────────────────────────────────────────────────────*/
 AlignmentResult
-nw_affine(const ProbSeq& a, const ProbSeq& b,
-          const SubstMat& M,
-          float gap_open, float gap_ext, float alpha)
+nw_affine(const ProbSeq&    a,
+          const ProbSeq&    b,
+          const SubstMat&   M,
+          float             gap_open,
+          float             gap_ext,
+          float             alpha)
 {
-    const int L1 = a.L, L2 = b.L;
+    int n = a.L, m = b.L;
+    auto idx = [&](int i,int j){ return i*(m+1) + j; };
 
-    /* rolling rows */
-    std::vector<f32> Mp(L2+1, NEG_INF), Xp(L2+1, NEG_INF), Yp(L2+1, NEG_INF),
-                     Mc(L2+1), Xc(L2+1), Yc(L2+1);
-    Mp[0] = 0.f;
-    for (int j = 1; j <= L2; ++j)
-        Yp[j] = -gap_open - (j-1)*gap_ext;
+    // Full DP matrices
+    std::vector<f32> Mmat((n+1)*(m+1), NEG_INF),
+                     Xmat((n+1)*(m+1), NEG_INF),
+                     Ymat((n+1)*(m+1), NEG_INF);
+    // Pointer matrix: 0=M, 1=X, 2=Y
+    std::vector<uint8_t> P((n+1)*(m+1), 0);
 
-    /* full matrices */
-    std::vector<f32> MM((L1+1)*(L2+1), NEG_INF),
-                     XX((L1+1)*(L2+1), NEG_INF),
-                     YY((L1+1)*(L2+1), NEG_INF);
-
-    /* store initial row 0 */
-    for (int j = 0; j <= L2; ++j) {
-        MM[j] = Mp[j]; XX[j] = Xp[j]; YY[j] = Yp[j];
+    // Base cases
+    Mmat[idx(0,0)] = 0.f;
+    for (int j = 1; j <= m; ++j) {
+        Ymat[idx(0,j)] = -gap_open - (j-1)*gap_ext;
+        P[idx(0,j)]    = 2;
+    }
+    for (int i = 1; i <= n; ++i) {
+        Xmat[idx(i,0)] = -gap_open - (i-1)*gap_ext;
+        P[idx(i,0)]    = 1;
     }
 
-    /* traceback flags */
-    std::vector<uint8_t> TB((L1+1)*(L2+1), 0);
-    auto idx = [&](int i,int j){ return i*(L2+1) + j; };
-
-    /* ---------- forward DP ---------- */
-    for (int i = 1; i <= L1; ++i) {
-        Mc[0] = NEG_INF;
-        Xc[0] = -gap_open - (i-1)*gap_ext;
-        Yc[0] = NEG_INF;
-
-        for (int j = 1; j <= L2; ++j) {
+    // Forward DP
+    for (int i = 1; i <= n; ++i) {
+        for (int j = 1; j <= m; ++j) {
             float s = -hybrid_score(a.row(i-1), b.row(j-1), M.data(), alpha);
 
-            float m = Mp[j-1] + s,
-                  x = Xp[j-1] + s,
-                  y = Yp[j-1] + s;
-            Mc[j]   = std::max({m,x,y});
-            TB[idx(i,j)] = (Mc[j]==m)?0 : (Mc[j]==x?1:2);
+            float mM = Mmat[idx(i-1,j-1)] + s;
+            float mX = Xmat[idx(i-1,j-1)] + s;
+            float mY = Ymat[idx(i-1,j-1)] + s;
+            float bestM = std::max({mM, mX, mY});
+            Mmat[idx(i,j)] = bestM;
+            P[idx(i,j)] = (bestM == mM ? 0 : (bestM == mX ? 1 : 2));
 
-            Xc[j] = std::max(Mp[j]-gap_open,      Xp[j]-gap_ext);
-            Yc[j] = std::max(Mc[j-1]-gap_open,    Yc[j-1]-gap_ext);
+            float openX = Mmat[idx(i-1,j)] - gap_open;
+            float contX = Xmat[idx(i-1,j)] - gap_ext;
+            Xmat[idx(i,j)] = std::max(openX, contX);
 
-            MM[idx(i,j)] = Mc[j];
-            XX[idx(i,j)] = Xc[j];
-            YY[idx(i,j)] = Yc[j];
-
-            /* keep row-0 / column j up to date for leading gaps */
-            MM[j] = Mp[j];
-            XX[j] = Xp[j];
-            YY[j] = Yp[j];
+            float openY = Mmat[idx(i,j-1)] - gap_open;
+            float contY = Ymat[idx(i,j-1)] - gap_ext;
+            Ymat[idx(i,j)] = std::max(openY, contY);
         }
-        /* store column 0 for this row */
-        MM[idx(i,0)] = Mc[0];
-        XX[idx(i,0)] = Xc[0];
-        YY[idx(i,0)] = Yc[0];
-
-        std::swap(Mp,Mc); std::swap(Xp,Xc); std::swap(Yp,Yc);
     }
 
-    /* ---------- traceback ---------- */
+    // Pick best ending state
+    float endM = Mmat[idx(n,m)],
+          endX = Xmat[idx(n,m)],
+          endY = Ymat[idx(n,m)];
+    uint8_t state = (endM >= endX && endM >= endY)
+                    ? 0
+                    : (endX >= endY ? 1 : 2);
+
+    // Traceback
     std::vector<f32> bufA, bufB;
-    bufA.reserve((L1+L2)*21); bufB.reserve((L1+L2)*21);
+    bufA.reserve((n+m)*21);
+    bufB.reserve((n+m)*21);
+    int i = n, j = m;
 
-    int i=L1, j=L2;
-    uint8_t state = TB[idx(i,j)];
-
-    while (i>0 || j>0) {
-        if (state==0) {                        /* M */
-            push_col(bufA,a.row(i-1));
-            push_col(bufB,b.row(j-1));
+    while (i > 0 || j > 0) {
+        if (state == 0) {
+            // match/mismatch
+            push_col(bufA, a.row(i-1));
+            push_col(bufB, b.row(j-1));
+            state = P[idx(i,j)];
             --i; --j;
-            state = TB[idx(i,j)];
-        } else if (state==1) {                 /* X */
-            push_col(bufA,a.row(i-1));
-            push_col(bufB,nullptr,true);
+        }
+        else if (state == 1) {
+            // gap in B
+            push_col(bufA, a.row(i-1));
+            push_col(bufB, nullptr, true);
+            float open = Mmat[idx(i-1,j)] - gap_open;
+            float cont = Xmat[idx(i-1,j)] - gap_ext;
+            state = (open >= cont ? 0 : 1);
             --i;
-            state = (MM[idx(i,j)]-gap_open > XX[idx(i,j)]-gap_ext) ? 0 : 1;
-        } else {                               /* Y */
-            push_col(bufA,nullptr,true);
-            push_col(bufB,b.row(j-1));
+        }
+        else {
+            // gap in A
+            push_col(bufA, nullptr, true);
+            push_col(bufB, b.row(j-1));
+            float open = Mmat[idx(i,j-1)] - gap_open;
+            float cont = Ymat[idx(i,j-1)] - gap_ext;
+            state = (open >= cont ? 0 : 2);
             --j;
-            state = (MM[idx(i,j)]-gap_open > YY[idx(i,j)]-gap_ext) ? 0 : 2;
         }
     }
-    std::reverse(bufA.begin(),bufA.end());
-    std::reverse(bufB.begin(),bufB.end());
 
-    return AlignmentResult{ std::move(bufA),
-                            std::move(bufB),
-                            static_cast<int>(bufA.size()/21),
-                            std::max({Mp[L2],Xp[L2],Yp[L2]}) };
+    std::reverse(bufA.begin(), bufA.end());
+    std::reverse(bufB.begin(), bufB.end());
+
+    int L = static_cast<int>(bufA.size() / 21);
+    float score = std::max({endM, endX, endY});
+    return AlignmentResult{
+        std::move(bufA),
+        std::move(bufB),
+        L,
+        score
+    };
 }
-/* ===================================================================== */
+
 } // namespace sa
