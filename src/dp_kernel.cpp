@@ -91,23 +91,21 @@ nw_affine(const ProbSeq& a, const ProbSeq& b, const SubstMat& M,
         Xc[0]=-gap_open-(i-1)*gap_ext;
         Yc[0]=NEG_INF;
 
-        #pragma omp parallel for schedule(static)
-        for (int j = std::max(1,i-band); j <= std::min(L2,i+band); ++j) {
-
+        for (int j = 1; j <= L2; ++j) {        // full width
             float s = -hybrid_score(a.row(i-1), b.row(j-1), M.data(), alpha);
-
+    
             /* M */
             float m = Mp[j-1] + s;
             float x = Xp[j-1] + s;
             float y = Yp[j-1] + s;
-            Mc[j] = std::max({m,x,y});
-            TB[idx(i,j)] = (Mc[j]==m)?0 : (Mc[j]==x?1:2);
-
-            /* X (gap in b) */
-            Xc[j] = std::max(Mp[j]-gap_open, Xp[j]-gap_ext);
-
-            /* Y (gap in a) */
-            Yc[j] = std::max(Mc[j-1]-gap_open, Yc[j-1]-gap_ext);
+            Mc[j] = std::max({m, x, y});
+            TB[idx(i, j)] = (Mc[j] == m) ? 0 : (Mc[j] == x ? 1 : 2);
+    
+            /* X (gap in B) */
+            Xc[j] = std::max(Mp[j] - gap_open, Xp[j] - gap_ext);
+    
+            /* Y (gap in A) – depends on Yc[j-1] written this iteration */
+            Yc[j] = std::max(Mc[j-1] - gap_open, Yc[j-1] - gap_ext);
         }
         std::swap(Mp,Mc); std::swap(Xp,Xc); std::swap(Yp,Yc);
     }
