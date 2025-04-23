@@ -122,10 +122,8 @@ nw_affine(const ProbSeq& a, const ProbSeq& b, const SubstMat& M,
     std::vector<f32> bufA, bufB;
     bufA.reserve((L1+L2)*21); bufB.reserve((L1+L2)*21);
 
-    int i=L1, j=L2; uint8_t state = TB[idx(i,j)];
-    if (Mp[L2] >= Xp[L2] && Mp[L2] >= Yp[L2]) state=0;
-    else if (Xp[L2] >= Yp[L2]) state=1;
-    else state=2;
+    int i = L1, j = L2;
+    uint8_t state = TB[idx(i, j)];    // initial direction comes from traceback
 
     while (i > 0 || j > 0) {
         if (state == 0) {                       // match / mismatch
