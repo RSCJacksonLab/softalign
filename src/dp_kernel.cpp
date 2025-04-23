@@ -38,11 +38,14 @@ float hybrid_score(const float* p,
     float blos_dist = 1.f - blosum;                    // already /max(M)
 
     /* JS part */
+    constexpr float EPS = 1e-8f;               // small positive number
     float kl1 = 0.f, kl2 = 0.f;
     for (int k = 0; k < 20; ++k) {
-        float m = 0.5f * (p[k] + q[k]);
-        kl1 += p[k] * std::log(p[k] / m);
-        kl2 += q[k] * std::log(q[k] / m);
+        float pk = p[k] + EPS;                 // avoid log(0)
+        float qk = q[k] + EPS;
+        float m  = 0.5f * (pk + qk);
+        kl1 += pk * std::log(pk / m);
+        kl2 += qk * std::log(qk / m);
     }
     float js = std::sqrt(0.5f * (kl1 + kl2));
 
