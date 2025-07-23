@@ -8,6 +8,15 @@
 namespace sa {
 namespace {
 
+// Enum to make pointer matrix states clearer
+enum class Pointer : uint8_t {
+    STOP = 0,
+    MATCH_FROM_M,
+    MATCH_FROM_X,
+    MATCH_FROM_Y,
+    GAP_IN_B, // Corresponds to X matrix
+    GAP_IN_A  // Corresponds to Y matrix
+};
 
 inline float hsum(__m256 v) {
     __m128 hi = _mm256_extractf128_ps(v, 1);
@@ -17,7 +26,6 @@ inline float hsum(__m256 v) {
     s = _mm_add_ss(s, _mm_shuffle_ps(s, s, 1));
     return _mm_cvtss_f32(s);
 }
-
 
 // JS + BLOSUM hybrid score
 float hybrid_score(const float* p,
@@ -30,7 +38,11 @@ float hybrid_score(const float* p,
     for (int k = 0; k < 16; k += 8) {
         __m256 pv = _mm256_loadu_ps(p + k);
         __m256 qv = _mm256_loadu_ps(q + k);
-        __m256 mv = _mm256_loadu_ps(M + k*20);
+        // Note: The original BLOSUM matrix is typically for scores, not probabilities.
+        // We assume M is structured appropriately for this dot product.
+        // A proper probabilistic interpretation would use log-odds scores.
+        // This implementation follows the user's provided logic.
+        __m256 mv = _mm256_loadu_ps(M + k*20); // This assumes M is row-major for p and col-major for q
         acc = _mm256_fmadd_ps(pv, _mm256_mul_ps(mv, qv), acc);
     }
     float tail = 0.f;
@@ -46,8 +58,8 @@ float hybrid_score(const float* p,
         float pk = p[k] + EPS;
         float qk = q[k] + EPS;
         float m  = 0.5f * (pk + qk);
-        kl1 += pk * std::log(pk / m);
-        kl2 += qk * std::log(qk / m);
+        if (pk > 0) kl1 += pk * std::log(pk / m);
+        if (qk > 0) kl2 += qk * std::log(qk / m);
     }
     float js = std::sqrt(std::max(0.f, 0.5f * (kl1 + kl2)));
 
@@ -58,7 +70,7 @@ float hybrid_score(const float* p,
 static constexpr float NEG_INF = -1e30f;
 
 inline void push_col(std::vector<f32>& dst,
-                     const f32*        src,
+                     const f32* src,
                      bool              gap = false)
 {
     if (gap) {
@@ -72,8 +84,7 @@ inline void push_col(std::vector<f32>& dst,
 
 } // anonymous namespace
 
- //Needleman–Wunsch with affine gaps
-
+// Needleman–Wunsch with affine gaps
 AlignmentResult
 nw_affine(const ProbSeq&    a,
           const ProbSeq&    b,
@@ -85,22 +96,22 @@ nw_affine(const ProbSeq&    a,
     int n = a.L, m = b.L;
     auto idx = [&](int i,int j){ return i*(m+1) + j; };
 
-    // Full DP matrices
     std::vector<f32> Mmat((n+1)*(m+1), NEG_INF),
                      Xmat((n+1)*(m+1), NEG_INF),
                      Ymat((n+1)*(m+1), NEG_INF);
-    // Pointer matrix: 0=M, 1=X, 2=Y
-    std::vector<uint8_t> P((n+1)*(m+1), 0);
+    std::vector<Pointer> Ptr_M((n+1)*(m+1)),
+                         Ptr_X((n+1)*(m+1)),
+                         Ptr_Y((n+1)*(m+1));
 
-    // Base cases
     Mmat[idx(0,0)] = 0.f;
-    for (int j = 1; j <= m; ++j) {
-        Ymat[idx(0,j)] = -gap_open - (j-1)*gap_ext;
-        P[idx(0,j)]    = 2;
-    }
+
     for (int i = 1; i <= n; ++i) {
         Xmat[idx(i,0)] = -gap_open - (i-1)*gap_ext;
-        P[idx(i,0)]    = 1;
+        Ptr_X[idx(i,0)] = Pointer::GAP_IN_B;
+    }
+    for (int j = 1; j <= m; ++j) {
+        Ymat[idx(0,j)] = -gap_open - (j-1)*gap_ext;
+        Ptr_Y[idx(0,j)] = Pointer::GAP_IN_A;
     }
 
     // Forward DP
@@ -108,30 +119,44 @@ nw_affine(const ProbSeq&    a,
         for (int j = 1; j <= m; ++j) {
             float s = -hybrid_score(a.row(i-1), b.row(j-1), M.data(), alpha);
 
-            float mM = Mmat[idx(i-1,j-1)] + s;
-            float mX = Xmat[idx(i-1,j-1)] + s;
-            float mY = Ymat[idx(i-1,j-1)] + s;
-            float bestM = std::max({mM, mX, mY});
-            Mmat[idx(i,j)] = bestM;
-            P[idx(i,j)] = (bestM == mM ? 0 : (bestM == mX ? 1 : 2));
+            // M matrix
+            float m_from_m = Mmat[idx(i-1,j-1)] + s;
+            float m_from_x = Xmat[idx(i-1,j-1)] + s;
+            float m_from_y = Ymat[idx(i-1,j-1)] + s;
+            if (m_from_m >= m_from_x && m_from_m >= m_from_y) {
+                Mmat[idx(i,j)] = m_from_m;
+                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_M;
+            } else if (m_from_x >= m_from_y) {
+                Mmat[idx(i,j)] = m_from_x;
+                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_X;
+            } else {
+                Mmat[idx(i,j)] = m_from_y;
+                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_Y;
+            }
 
-            float openX = Mmat[idx(i-1,j)] - gap_open;
-            float contX = Xmat[idx(i-1,j)] - gap_ext;
-            Xmat[idx(i,j)] = std::max(openX, contX);
+            // X matrix (gap in B)
+            float x_open = Mmat[idx(i-1,j)] - gap_open;
+            float x_ext = Xmat[idx(i-1,j)] - gap_ext;
+            if (x_open >= x_ext) {
+                Xmat[idx(i,j)] = x_open;
+                Ptr_X[idx(i,j)] = Pointer::MATCH_FROM_M; // came from M
+            } else {
+                Xmat[idx(i,j)] = x_ext;
+                Ptr_X[idx(i,j)] = Pointer::GAP_IN_B; // came from X
+            }
 
-            float openY = Mmat[idx(i,j-1)] - gap_open;
-            float contY = Ymat[idx(i,j-1)] - gap_ext;
-            Ymat[idx(i,j)] = std::max(openY, contY);
+            // Y matrix (gap in A)
+            float y_open = Mmat[idx(i,j-1)] - gap_open;
+            float y_ext = Ymat[idx(i,j-1)] - gap_ext;
+            if (y_open >= y_ext) {
+                Ymat[idx(i,j)] = y_open;
+                Ptr_Y[idx(i,j)] = Pointer::MATCH_FROM_M; // came from M
+            } else {
+                Ymat[idx(i,j)] = y_ext;
+                Ptr_Y[idx(i,j)] = Pointer::GAP_IN_A; // came from Y
+            }
         }
     }
-
-    // Pick best ending state
-    float endM = Mmat[idx(n,m)],
-          endX = Xmat[idx(n,m)],
-          endY = Ymat[idx(n,m)];
-    uint8_t state = (endM >= endX && endM >= endY)
-                    ? 0
-                    : (endX >= endY ? 1 : 2);
 
     // Traceback
     std::vector<f32> bufA, bufB;
@@ -139,31 +164,39 @@ nw_affine(const ProbSeq&    a,
     bufB.reserve((n+m)*21);
     int i = n, j = m;
 
+    float score_m = Mmat[idx(n,m)];
+    float score_x = Xmat[idx(n,m)];
+    float score_y = Ymat[idx(n,m)];
+    Pointer current_state;
+    if (score_m >= score_x && score_m >= score_y) {
+        current_state = Ptr_M[idx(n,m)];
+    } else if (score_x >= score_y) {
+        current_state = Pointer::GAP_IN_B; // Start in X matrix
+    } else {
+        current_state = Pointer::GAP_IN_A; // Start in Y matrix
+    }
+    
     while (i > 0 || j > 0) {
-        if (state == 0) {
-            // match/mismatch
+        if (current_state == Pointer::MATCH_FROM_M || current_state == Pointer::MATCH_FROM_X || current_state == Pointer::MATCH_FROM_Y) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, b.row(j-1));
-            state = P[idx(i,j)];
+            Pointer prev_state = Ptr_M[idx(i,j)];
             --i; --j;
-        }
-        else if (state == 1) {
-            // gap in B
+            current_state = prev_state;
+        } else if (current_state == Pointer::GAP_IN_B) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, nullptr, true);
-            float open = Mmat[idx(i-1,j)] - gap_open;
-            float cont = Xmat[idx(i-1,j)] - gap_ext;
-            state = (open >= cont ? 0 : 1);
+            Pointer prev_state = Ptr_X[idx(i,j)];
             --i;
-        }
-        else {
-            // gap in A
+            current_state = (prev_state == Pointer::MATCH_FROM_M) ? Ptr_M[idx(i,j)] : Pointer::GAP_IN_B;
+        } else if (current_state == Pointer::GAP_IN_A) {
             push_col(bufA, nullptr, true);
             push_col(bufB, b.row(j-1));
-            float open = Mmat[idx(i,j-1)] - gap_open;
-            float cont = Ymat[idx(i,j-1)] - gap_ext;
-            state = (open >= cont ? 0 : 2);
+            Pointer prev_state = Ptr_Y[idx(i,j)];
             --j;
+            current_state = (prev_state == Pointer::MATCH_FROM_M) ? Ptr_M[idx(i,j)] : Pointer::GAP_IN_A;
+        } else {
+            break; // Should not happen
         }
     }
 
@@ -171,7 +204,7 @@ nw_affine(const ProbSeq&    a,
     std::reverse(bufB.begin(), bufB.end());
 
     int L = static_cast<int>(bufA.size() / 21);
-    float score = std::max({endM, endX, endY});
+    float score = std::max({score_m, score_x, score_y});
     return AlignmentResult{
         std::move(bufA),
         std::move(bufB),
