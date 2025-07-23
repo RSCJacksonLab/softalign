@@ -15,7 +15,6 @@ from softalign.distance_metrics_with_blosum import (
 )
 from softalign._blosum import get_reordered_matrix
 
-
 # Define a standard alphabet for testing
 ALPHABET = list("ARNDCQEGHILKMFPSTWYV")
 ALPHABET_SIZE = len(ALPHABET)
@@ -30,9 +29,9 @@ def soft_sequence_factory():
 
 @pytest.fixture
 def identical_soft_sequences(soft_sequence_factory):
+    np.random.seed(0) 
     seq = soft_sequence_factory(10, ALPHABET_SIZE)
     return [seq, seq.copy()]
-
 
 def test_pairwise_align(identical_soft_sequences):
     """

@@ -1,3 +1,5 @@
+// In softalign/src/bindings.cpp
+
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include "softalign.hpp"
@@ -12,14 +14,6 @@ ProbSeq as_probseq(const py::array_t<f32>& arr)
     return {static_cast<int>(arr.shape(0)), arr.data()};
 }
 
-py::array_t<f32> make_2d(const std::vector<f32>& v, int L)
-{
-    return py::array_t<f32>({L,21},
-                            {21*sizeof(f32), sizeof(f32)},
-                            v.data(),                  // no copyso
-                            py::none());               // base = none
-}
-
 PYBIND11_MODULE(_softalign, m) {
     m.def("nw_affine",
           [](py::array_t<f32, py::array::c_style|py::array::forcecast> a,
@@ -31,9 +25,16 @@ PYBIND11_MODULE(_softalign, m) {
               ProbSeq B = as_probseq(b);
               SubstMat M(subst.data());
               AlignmentResult r = sa::nw_affine(A,B,M,gap_open,gap_ext,alpha);
-              return py::make_tuple(make_2d(r.aligned_a, r.L),
-                                    make_2d(r.aligned_b, r.L),
-                                    r.score);
+
+              // FIX: This constructor copies the data from the C++ vector into a new
+              // NumPy array, preventing the use-after-free memory error.
+              py::array_t<f32> py_aligned_a(r.aligned_a.size(), r.aligned_a.data());
+              py_aligned_a.resize({r.L, 21});
+
+              py::array_t<f32> py_aligned_b(r.aligned_b.size(), r.aligned_b.data());
+              py_aligned_b.resize({r.L, 21});
+
+              return py::make_tuple(py_aligned_a, py_aligned_b, r.score);
           },
           py::arg("seq1"), py::arg("seq2"), py::arg("subst"),
           py::arg("gap_open")=10.f, py::arg("gap_ext")=0.5f,

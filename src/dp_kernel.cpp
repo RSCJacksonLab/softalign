@@ -1,3 +1,5 @@
+// In softalign/src/dp_kernel.cpp
+
 #include "softalign.hpp"
 #include <immintrin.h>
 #include <vector>
@@ -11,45 +13,31 @@ namespace {
 // Enum to make pointer matrix states clearer
 enum class Pointer : uint8_t {
     STOP = 0,
-    MATCH_FROM_M,
-    MATCH_FROM_X,
-    MATCH_FROM_Y,
-    GAP_IN_B, // Corresponds to X matrix
-    GAP_IN_A  // Corresponds to Y matrix
+    FROM_M,
+    FROM_X,
+    FROM_Y
 };
-
-inline float hsum(__m256 v) {
-    __m128 hi = _mm256_extractf128_ps(v, 1);
-    __m128 lo = _mm256_castps256_ps128(v);
-    __m128 s  = _mm_add_ps(hi, lo);
-    s = _mm_add_ps(s, _mm_movehl_ps(s, s));
-    s = _mm_add_ss(s, _mm_shuffle_ps(s, s, 1));
-    return _mm_cvtss_f32(s);
-}
 
 // JS + BLOSUM hybrid score
 float hybrid_score(const float* p,
                    const float* q,
-                   const float* M,
+                   const float* M, // M is a 20x20 matrix
                    float         alpha)
 {
-    // BLOSUM part
-    __m256 acc = _mm256_setzero_ps();
-    for (int k = 0; k < 16; k += 8) {
-        __m256 pv = _mm256_loadu_ps(p + k);
-        __m256 qv = _mm256_loadu_ps(q + k);
-        // Note: The original BLOSUM matrix is typically for scores, not probabilities.
-        // We assume M is structured appropriately for this dot product.
-        // A proper probabilistic interpretation would use log-odds scores.
-        // This implementation follows the user's provided logic.
-        __m256 mv = _mm256_loadu_ps(M + k*20); // This assumes M is row-major for p and col-major for q
-        acc = _mm256_fmadd_ps(pv, _mm256_mul_ps(mv, qv), acc);
+    // FIX: This now correctly calculates the full substitution score: S = p^T * M * q
+    float blosum_score = 0.f;
+    for (int i = 0; i < 20; ++i) {
+        float row_sum = 0.f;
+        for (int j = 0; j < 20; ++j) {
+            row_sum += M[i*20 + j] * q[j];
+        }
+        blosum_score += p[i] * row_sum;
     }
-    float tail = 0.f;
-    for (int k = 16; k < 20; ++k)
-        tail += p[k] * M[k*20 + k] * q[k];
-    float blosum    = hsum(acc) + tail;
-    float blos_dist = 1.f - blosum;
+
+    // This normalization step is important for combining scores.
+    // We assume a max possible score (e.g., from BLOSUM62's W-W match).
+    float max_blosum_val = 11.0; 
+    float blos_dist = 1.0f - (blosum_score / max_blosum_val);
 
     // Jensen–Shannon part
     constexpr float EPS = 1e-8f;
@@ -96,23 +84,17 @@ nw_affine(const ProbSeq&    a,
     int n = a.L, m = b.L;
     auto idx = [&](int i,int j){ return i*(m+1) + j; };
 
-    std::vector<f32> Mmat((n+1)*(m+1), NEG_INF),
-                     Xmat((n+1)*(m+1), NEG_INF),
-                     Ymat((n+1)*(m+1), NEG_INF);
+    std::vector<f32> M_scores((n+1)*(m+1), NEG_INF),
+                     X_scores((n+1)*(m+1), NEG_INF),
+                     Y_scores((n+1)*(m+1), NEG_INF);
     std::vector<Pointer> Ptr_M((n+1)*(m+1)),
                          Ptr_X((n+1)*(m+1)),
                          Ptr_Y((n+1)*(m+1));
 
-    Mmat[idx(0,0)] = 0.f;
+    M_scores[idx(0,0)] = 0.f;
 
-    for (int i = 1; i <= n; ++i) {
-        Xmat[idx(i,0)] = -gap_open - (i-1)*gap_ext;
-        Ptr_X[idx(i,0)] = Pointer::GAP_IN_B;
-    }
-    for (int j = 1; j <= m; ++j) {
-        Ymat[idx(0,j)] = -gap_open - (j-1)*gap_ext;
-        Ptr_Y[idx(0,j)] = Pointer::GAP_IN_A;
-    }
+    for (int i = 1; i <= n; ++i) X_scores[idx(i,0)] = -gap_open - (i-1)*gap_ext;
+    for (int j = 1; j <= m; ++j) Y_scores[idx(0,j)] = -gap_open - (j-1)*gap_ext;
 
     // Forward DP
     for (int i = 1; i <= n; ++i) {
@@ -120,40 +102,40 @@ nw_affine(const ProbSeq&    a,
             float s = -hybrid_score(a.row(i-1), b.row(j-1), M.data(), alpha);
 
             // M matrix
-            float m_from_m = Mmat[idx(i-1,j-1)] + s;
-            float m_from_x = Xmat[idx(i-1,j-1)] + s;
-            float m_from_y = Ymat[idx(i-1,j-1)] + s;
+            float m_from_m = M_scores[idx(i-1,j-1)] + s;
+            float m_from_x = X_scores[idx(i-1,j-1)] + s;
+            float m_from_y = Y_scores[idx(i-1,j-1)] + s;
             if (m_from_m >= m_from_x && m_from_m >= m_from_y) {
-                Mmat[idx(i,j)] = m_from_m;
-                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_M;
+                M_scores[idx(i,j)] = m_from_m;
+                Ptr_M[idx(i,j)] = Pointer::FROM_M;
             } else if (m_from_x >= m_from_y) {
-                Mmat[idx(i,j)] = m_from_x;
-                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_X;
+                M_scores[idx(i,j)] = m_from_x;
+                Ptr_M[idx(i,j)] = Pointer::FROM_X;
             } else {
-                Mmat[idx(i,j)] = m_from_y;
-                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_Y;
+                M_scores[idx(i,j)] = m_from_y;
+                Ptr_M[idx(i,j)] = Pointer::FROM_Y;
             }
 
             // X matrix (gap in B)
-            float x_open = Mmat[idx(i-1,j)] - gap_open;
-            float x_ext = Xmat[idx(i-1,j)] - gap_ext;
+            float x_open = M_scores[idx(i-1,j)] - gap_open;
+            float x_ext = X_scores[idx(i-1,j)] - gap_ext;
             if (x_open >= x_ext) {
-                Xmat[idx(i,j)] = x_open;
-                Ptr_X[idx(i,j)] = Pointer::MATCH_FROM_M; // came from M
+                X_scores[idx(i,j)] = x_open;
+                Ptr_X[idx(i,j)] = Pointer::FROM_M;
             } else {
-                Xmat[idx(i,j)] = x_ext;
-                Ptr_X[idx(i,j)] = Pointer::GAP_IN_B; // came from X
+                X_scores[idx(i,j)] = x_ext;
+                Ptr_X[idx(i,j)] = Pointer::FROM_X;
             }
 
             // Y matrix (gap in A)
-            float y_open = Mmat[idx(i,j-1)] - gap_open;
-            float y_ext = Ymat[idx(i,j-1)] - gap_ext;
+            float y_open = M_scores[idx(i,j-1)] - gap_open;
+            float y_ext = Y_scores[idx(i,j-1)] - gap_ext;
             if (y_open >= y_ext) {
-                Ymat[idx(i,j)] = y_open;
-                Ptr_Y[idx(i,j)] = Pointer::MATCH_FROM_M; // came from M
+                Y_scores[idx(i,j)] = y_open;
+                Ptr_Y[idx(i,j)] = Pointer::FROM_M;
             } else {
-                Ymat[idx(i,j)] = y_ext;
-                Ptr_Y[idx(i,j)] = Pointer::GAP_IN_A; // came from Y
+                Y_scores[idx(i,j)] = y_ext;
+                Ptr_Y[idx(i,j)] = Pointer::FROM_Y;
             }
         }
     }
@@ -164,39 +146,39 @@ nw_affine(const ProbSeq&    a,
     bufB.reserve((n+m)*21);
     int i = n, j = m;
 
-    float score_m = Mmat[idx(n,m)];
-    float score_x = Xmat[idx(n,m)];
-    float score_y = Ymat[idx(n,m)];
-    Pointer current_state;
-    if (score_m >= score_x && score_m >= score_y) {
-        current_state = Ptr_M[idx(n,m)];
-    } else if (score_x >= score_y) {
-        current_state = Pointer::GAP_IN_B; // Start in X matrix
-    } else {
-        current_state = Pointer::GAP_IN_A; // Start in Y matrix
-    }
+    enum class Matrix { M, X, Y };
+    Matrix current_matrix;
+    float score_m = M_scores[idx(n,m)];
+    float score_x = X_scores[idx(n,m)];
+    float score_y = Y_scores[idx(n,m)];
+
+    if (score_m >= score_x && score_m >= score_y) current_matrix = Matrix::M;
+    else if (score_x >= score_y) current_matrix = Matrix::X;
+    else current_matrix = Matrix::Y;
     
     while (i > 0 || j > 0) {
-        if (current_state == Pointer::MATCH_FROM_M || current_state == Pointer::MATCH_FROM_X || current_state == Pointer::MATCH_FROM_Y) {
+        if (current_matrix == Matrix::M) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, b.row(j-1));
-            Pointer prev_state = Ptr_M[idx(i,j)];
+            Pointer ptr = Ptr_M[idx(i,j)];
             --i; --j;
-            current_state = prev_state;
-        } else if (current_state == Pointer::GAP_IN_B) {
+            if (ptr == Pointer::FROM_M) current_matrix = Matrix::M;
+            else if (ptr == Pointer::FROM_X) current_matrix = Matrix::X;
+            else current_matrix = Matrix::Y;
+        } else if (current_matrix == Matrix::X) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, nullptr, true);
-            Pointer prev_state = Ptr_X[idx(i,j)];
+            Pointer ptr = Ptr_X[idx(i,j)];
             --i;
-            current_state = (prev_state == Pointer::MATCH_FROM_M) ? Ptr_M[idx(i,j)] : Pointer::GAP_IN_B;
-        } else if (current_state == Pointer::GAP_IN_A) {
+            if (ptr == Pointer::FROM_M) current_matrix = Matrix::M;
+            else current_matrix = Matrix::X;
+        } else { // Matrix::Y
             push_col(bufA, nullptr, true);
             push_col(bufB, b.row(j-1));
-            Pointer prev_state = Ptr_Y[idx(i,j)];
+            Pointer ptr = Ptr_Y[idx(i,j)];
             --j;
-            current_state = (prev_state == Pointer::MATCH_FROM_M) ? Ptr_M[idx(i,j)] : Pointer::GAP_IN_A;
-        } else {
-            break; // Should not happen
+            if (ptr == Pointer::FROM_M) current_matrix = Matrix::M;
+            else current_matrix = Matrix::Y;
         }
     }
 
