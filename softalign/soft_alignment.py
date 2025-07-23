@@ -3,29 +3,26 @@ from typing import Literal, List, Union, Dict, Any
 import numpy as np
 
 from softalign._softalign import nw_affine
-from ._blossum import get_substitution_matrix
 import numpy as np
 from .distance_metrics_with_blosum import batch_column_distance
-from ._blossum import get_substitution_matrix
+from ._blosum import get_reordered_matrix
 from scipy.cluster.hierarchy import linkage
 from scipy.spatial.distance import squareform
 
 def pairwise_align(
     seq1: np.ndarray,
     seq2: np.ndarray,
+    alphabet: List[str],
     gap_open: float = 10.0,
     gap_extend: float = 0.5,
-    substitution_matrix: Union[str, np.ndarray] = "BLOSUM62",
+    matrix_name: str = "BLOSUM62",
     alpha: float = 0.5):
     """
     """
     seq1_f = np.asarray(seq1, dtype=np.float32)
     seq2_f = np.asarray(seq2, dtype=np.float32)
 
-    if isinstance(substitution_matrix, str):
-        subst = get_substitution_matrix(substitution_matrix).astype(np.float32)
-    else:
-        subst = np.asarray(substitution_matrix, dtype=np.float32)
+    subst = get_reordered_matrix(target_alphabet=alphabet, matrix_name=matrix_name).astype(np.float32)
 
     aligned1, aligned2, score = nw_affine(
         seq1_f, seq2_f, subst, gap_open, gap_extend, alpha
@@ -70,10 +67,11 @@ def build_guide_tree(distances: np.ndarray) -> Dict:
 
 def profile_align(profile1: np.ndarray,
                   profile2: np.ndarray,
+                  alphabet: List[str],
                   pairwise_align: Any = pairwise_align,
                   gap_open: float = 10.0,
                   gap_extend: float = 0.5,
-                  substitution_matrix: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
+                  matrix_name: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
                   alpha: float = 0.5) -> tuple:
     """
     Align two profiles (sets of aligned sequences) using dynamic
@@ -82,10 +80,10 @@ def profile_align(profile1: np.ndarray,
     Parameters
     ----------
     profile1 : np.ndarray
-        First array of aligned sequences with shape (L1, 21).
+        First array of aligned sequences with shape (L1, alphabet_size + 1).
     
     profile2 : np.ndarray
-        Second array of aligned sequences with shape (L2, 21).
+        Second array of aligned sequences with shape (L2, alphabet_size + 1).
 
     pairwise_align : callable
         The pairwise alignment function.
@@ -105,39 +103,41 @@ def profile_align(profile1: np.ndarray,
     Returns
     -------
     aligned_profile1 : np.ndarray
-        Aligned profile 1 with shape (N1, L', 21).
+        Aligned profile 1 with shape (N1, L', alphabet_size + 1).
         
     aligned_profile2 : np.ndararay
-        Aligned profile 2 with shape (N1, L', 21).
+        Aligned profile 2 with shape (N1, L', alphabet_size + 1).
     """
     # Convert profiles to average probability distributions per column
     avg_profile1 = np.mean(profile1, axis=0)
     avg_profile2 = np.mean(profile2, axis=0)
     
+    alphabet_size = len(alphabet)
     # Align the average profiles
-    aligned_avg1, aligned_avg2, score = pairwise_align(avg_profile1[:, :20],
-                                                       avg_profile2[:, :20], 
+    aligned_avg1, aligned_avg2, score = pairwise_align(avg_profile1[:, :alphabet_size],
+                                                       avg_profile2[:, :alphabet_size],
+                                                       alphabet,
                                                        gap_open,
                                                        gap_extend,
-                                                       substitution_matrix,
+                                                       matrix_name,
                                                        alpha)
     
     align_length = aligned_avg1.shape[0]
 
-    aligned_profile1 = np.zeros((profile1.shape[0], align_length, 21))
-    aligned_profile2 = np.zeros((profile2.shape[0], align_length, 21))
+    aligned_profile1 = np.zeros((profile1.shape[0], align_length, alphabet_size + 1))
+    aligned_profile2 = np.zeros((profile2.shape[0], align_length, alphabet_size + 1))
     
     pos1, pos2 = 0, 0
     for i in range(align_length):
-        is_gap1 = aligned_avg1[i, 20] > 0.5
-        is_gap2 = aligned_avg2[i, 20] > 0.5
+        is_gap1 = aligned_avg1[i, alphabet_size] > 0.5
+        is_gap2 = aligned_avg2[i, alphabet_size] > 0.5
         
         if not is_gap1:
             if pos1 < profile1.shape[1]:
                 aligned_profile1[:, i, :] = profile1[:, pos1, :]
             else:
                 aligned_profile1[:, i, :] = 0
-                aligned_profile1[:, i, 20] = 1.0
+                aligned_profile1[:, i, alphabet_size] = 1.0
             pos1 += 1
         
         if not is_gap2:
@@ -145,7 +145,7 @@ def profile_align(profile1: np.ndarray,
                 aligned_profile2[:, i, :] = profile2[:, pos2, :]
             else:
                 aligned_profile2[:, i, :] = 0
-                aligned_profile2[:, i, 20] = 1.0
+                aligned_profile2[:, i, alphabet_size] = 1.0
             pos2 += 1
 
     return aligned_profile1, aligned_profile2, score
@@ -153,10 +153,11 @@ def profile_align(profile1: np.ndarray,
 
 def progressive_alignment(sequences: List,
                           guide_tree: Dict,
+                          alphabet: List[str],
                           pairwise_align: Any = pairwise_align,
                           gap_open: float = 10.0,
                           gap_extend: float = 0.5,
-                          substitution_matrix: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
+                          matrix_name: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
                           alpha: float = 0.5):
     """
     Perform progressive alignment following a guide tree.
@@ -164,7 +165,7 @@ def progressive_alignment(sequences: List,
     Parameters
     -----------
     sequences : List
-        List of soft sequences as arrays of shape (L, 20).
+        List of soft sequences as arrays of shape (L, alphabet_size).
     
     guide_tree : Dict
         Guide tree to use for progressive alignment.
@@ -187,15 +188,16 @@ def progressive_alignment(sequences: List,
     Returns
     -------
     List
-        List of aligned sequences as arrays of shape (L', 21)
+        List of aligned sequences as arrays of shape (L', alphabet_size + 1)
     """
     n = len(sequences)
+    alphabet_size = len(alphabet)
     
     # Add gap dimension to sequences
     seqs_with_gaps = []
     for seq in sequences:
-        seq_with_gap = np.zeros((seq.shape[0], 21))
-        seq_with_gap[:, :20] = seq
+        seq_with_gap = np.zeros((seq.shape[0], alphabet_size + 1))
+        seq_with_gap[:, :alphabet_size] = seq
         seqs_with_gaps.append(seq_with_gap)
     
     profiles = {i: np.expand_dims(seqs_with_gaps[i], axis=0) for i in range(n)}
@@ -207,10 +209,11 @@ def progressive_alignment(sequences: List,
         aligned_left, aligned_right, score = profile_align(
             profiles[left_child], 
             profiles[right_child],
+            alphabet,
             pairwise_align,
             gap_open,
             gap_extend,
-            substitution_matrix,
+            matrix_name,
             alpha
         )
         
@@ -228,26 +231,27 @@ def progressive_alignment(sequences: List,
     return [profiles[root_id][i] for i in range(len(sequences))], score
 
 
-def remove_all_gap_columns(aligned_sequences: np.ndarray) -> np.ndarray:
+def remove_all_gap_columns(aligned_sequences: np.ndarray, alphabet: List[str]) -> np.ndarray:
     """
     Remove columns that are gaps in all sequences.
     
     Parameters
     ----------
     aligned_sequences : List
-        List of aligned sequences as arrays of shape (L, 21).
+        List of aligned sequences as arrays of shape (L, alphabet_size + 1).
         
     Returns
     -------
     result : List
         List of sequences with all-gap columns removed, with entries of
-        shape (L, 20).
+        shape (L, alphabet_size + 1).
     """
     # Convert to numpy array for easier manipulation
     alignment = np.array(aligned_sequences)
     
+    alphabet_size = len(alphabet)
     # Find columns that are gaps in all sequences
-    all_gap_columns = np.all(alignment[:, :, 20] > 0.5, axis=0)
+    all_gap_columns = np.all(alignment[:, :, alphabet_size] > 0.5, axis=0)
     
     # Create a mask for columns to keep
     keep_columns = ~all_gap_columns
@@ -261,10 +265,11 @@ def remove_all_gap_columns(aligned_sequences: np.ndarray) -> np.ndarray:
 
 def refine_alignment(aligned_sequences,
                      alignment_score,
+                     alphabet: List[str],
                      pairwise_align: Any = pairwise_align,
                      gap_open=10.0,
                      gap_extend=0.5,
-                     substitution_matrix="BLOSUM62",
+                     matrix_name="BLOSUM62",
                      alpha=0.5):
     """
     Refine the alignment through iterative optimization.
@@ -272,7 +277,7 @@ def refine_alignment(aligned_sequences,
     Parameters
     ----------
     aligned_sequences : List 
-        List of aligned sequences as arrays of shape (L, 21)
+        List of aligned sequences as arrays of shape (L, alphabet_size + 1)
     
     pairwise_align : callable
         The pairwise alignment function.
@@ -308,17 +313,18 @@ def refine_alignment(aligned_sequences,
         group2 = aligned_sequences[k:]
         
         # Remove gaps that are in all sequences of a group
-        group1_nogaps = remove_all_gap_columns(group1)
-        group2_nogaps = remove_all_gap_columns(group2)
+        group1_nogaps = remove_all_gap_columns(group1, alphabet)
+        group2_nogaps = remove_all_gap_columns(group2, alphabet)
         
         # Realign the two groups
         aligned_group1, aligned_group2, new_score = profile_align(
             np.array(group1_nogaps),
             np.array(group2_nogaps),
+            alphabet,
             pairwise_align,
             gap_open,
             gap_extend,
-            substitution_matrix,
+            matrix_name,
             alpha)
         
         # Combine the realigned groups
@@ -334,14 +340,15 @@ def refine_alignment(aligned_sequences,
     return aligned_sequences, improved, new_score
 
 
-def align_soft_sequences_with_blosum(sequences: List,
-                                     pairwise_align: Any = pairwise_align,
-                                     gap_open: float = 10.0,
-                                     gap_extend: float = 0.5,
-                                     distance_metric: Literal['jensen_shannon', 'kl_divergence', 'hybrid'] = 'hybrid',
-                                     substitution_matrix: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
-                                     alpha: float = 0.5,
-                                     max_iterations: int = 3):
+def align_soft_sequences(sequences: List,
+                         alphabet: List[str],
+                         pairwise_align: Any = pairwise_align,
+                         gap_open: float = 10.0,
+                         gap_extend: float = 0.5,
+                         distance_metric: Literal['jensen_shannon', 'kl_divergence', 'hybrid'] = 'hybrid',
+                         matrix_name: Literal["BLOSUM62", "BLOSUM50", "PAM250"] = 'BLOSUM62',
+                         alpha: float = 0.05,
+                         max_iterations: int = 3):
     """
     Align a list of soft sequences (probability distributions over amino acids)
     using substitution matrices for scoring.
@@ -349,7 +356,10 @@ def align_soft_sequences_with_blosum(sequences: List,
     Parameters
     ----------
     sequences : List 
-        List of  sequences as arrays of shape (L, 20). To be aligned.
+        List of  sequences as arrays of shape (L, alphabet_size). To be aligned.
+    
+    alphabet : List
+        The sequence alphabet.
     
     pairwise_align : callable
         The pairwise alignment function.
@@ -372,18 +382,19 @@ def align_soft_sequences_with_blosum(sequences: List,
     Returns
     -------
     list
-        List of aligned sequences as numpy arrays with shape (L', 21).
+        List of aligned sequences as numpy arrays with shape (L', alphabet_size + 1).
     """
 
     if not sequences:
         raise ValueError("Input sequences list cannot be empty")
     
+    alphabet_size = len(alphabet)
     for i, seq in enumerate(sequences):
         if not isinstance(seq, np.ndarray):
             raise TypeError(f"Sequence {i} is not a numpy array")
         
-        if seq.ndim != 2 or seq.shape[1] != 20:
-            raise ValueError(f"Sequence {i} has shape {seq.shape}, expected (L, 20)")
+        if seq.ndim != 2 or seq.shape[1] != alphabet_size:
+            raise ValueError(f"Sequence {i} has shape {seq.shape}, expected (L, {alphabet_size})")
         
         # Check if rows sum to approximately 1
         row_sums = np.sum(seq, axis=1)
@@ -410,16 +421,10 @@ def align_soft_sequences_with_blosum(sequences: List,
     if n < 2:
         # If only one sequence, just add the gap dimension and return
         if n == 1:
-            seq_with_gap = np.zeros((sequences[0].shape[0], 21))
-            seq_with_gap[:, :20] = sequences[0]
+            seq_with_gap = np.zeros((sequences[0].shape[0], alphabet_size + 1))
+            seq_with_gap[:, :alphabet_size] = sequences[0]
             return [seq_with_gap]
         return []
-    
-    # Get the substitution matrix if a name is provided
-    if isinstance(substitution_matrix, str):
-        matrix = get_substitution_matrix(substitution_matrix)
-    else:
-        matrix = substitution_matrix
     
     distances = np.zeros((n, n))
     for i in range(n):
@@ -431,8 +436,11 @@ def align_soft_sequences_with_blosum(sequences: List,
                 
                 batch_dists = batch_column_distance(
                     sequences[i][:min_len], 
-                    sequences[j][:min_len], 
-                    distance_metric, matrix, alpha
+                    sequences[j][:min_len],
+                    alphabet,
+                    distance_metric,
+                    matrix_name,
+                    alpha
                 )
                 dist = np.mean(batch_dists)
             else:
@@ -447,23 +455,27 @@ def align_soft_sequences_with_blosum(sequences: List,
     
     guide_tree = build_guide_tree(distances)
     
-    alignment, alignment_sore = progressive_alignment(sequences,
+    alignment, alignment_score = progressive_alignment(sequences,
                                                       guide_tree,
+                                                      alphabet,
                                                       pairwise_align,
                                                       gap_open,
                                                       gap_extend,
-                                                      matrix,
+                                                      matrix_name,
                                                       alpha)
     
     for _ in range(max_iterations):
         alignment, improved, score = refine_alignment(alignment,
-                                                      alignment_sore,
+                                                      alignment_score,
+                                                      alphabet,
                                                       pairwise_align,
                                                       gap_open,
                                                       gap_extend,
-                                                      matrix,
+                                                      matrix_name,
                                                       alpha)
         if not improved:
             break
-    
-    return alignment, score
+        else:
+            alignment_score = score
+
+    return alignment, alignment_score
