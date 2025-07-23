@@ -3,7 +3,7 @@ requires = [
   "scikit-build-core>=0.11",
   "pybind11>=2.10",
   "numpy",
-  "scipy"
+  "scipy",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -17,6 +17,11 @@ license = { file = "LICENSE" }
 requires-python = ">=3.9"
 dependencies = ["numpy>=1.23"]
 
+[project.optional-dependencies]
+test = [
+    "pytest"
+]
+
 [project.urls]
 Homepage = "https://github.com/RSCJacksonLab/softalign"
 Issues    = "https://github.com/RSCJacksonLab/softalign/issues"
@@ -29,4 +34,13 @@ sdist.include = [
   "src/**",
   "softalign/**",
   "CMakeLists.txt"
+]
+
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
+]
+testpaths = [
+    "tests",
 ]

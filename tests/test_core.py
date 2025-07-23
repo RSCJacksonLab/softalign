@@ -13,7 +13,7 @@ from softalign.distance_metrics_with_blosum import (
     batch_pairwise_distance,
     batch_column_distance,
 )
-from softalign._blossum import get_reordered_matrix
+from softalign._blosum import get_reordered_matrix
 
 # Define a standard alphabet for testing
 ALPHABET = list("ARNDCQEGHILKMFPSTWYV")

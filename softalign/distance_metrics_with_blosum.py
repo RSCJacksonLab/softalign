@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.special import rel_entr
-from ._blossum import get_reordered_matrix
+from ._blosum import get_reordered_matrix
 from typing import Literal, Union, List
 
 def batch_pairwise_distance(cols1: np.ndarray,

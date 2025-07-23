@@ -5,7 +5,7 @@ import numpy as np
 from softalign._softalign import nw_affine
 import numpy as np
 from .distance_metrics_with_blosum import batch_column_distance
-from ._blossum import get_reordered_matrix
+from ._blosum import get_reordered_matrix
 from scipy.cluster.hierarchy import linkage
 from scipy.spatial.distance import squareform
 
@@ -357,6 +357,9 @@ def align_soft_sequences(sequences: List,
     ----------
     sequences : List 
         List of  sequences as arrays of shape (L, alphabet_size). To be aligned.
+    
+    alphabet : List
+        The sequence alphabet.
     
     pairwise_align : callable
         The pairwise alignment function.
