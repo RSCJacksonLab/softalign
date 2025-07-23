@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Literal
+from typing import Literal, List
 
 # Amino acid order used in BLOSUM and PAM matrices
 _aa_order = "ARNDCQEGHILKMFPSTWYV"
@@ -79,13 +79,13 @@ PAM250 = np.array([
     [ 0, -2, -2, -2, -2, -2, -2, -1, -2,  4,  2, -2,  2, -1, -1, -1,  0, -6, -2,  4],  # V
 ])
 
-def get_substitution_matrix(matrix_name: Literal['BLOSUM62', 'BLOSUM50', 'PAM250'] = "BLOSUM62"):
+def get_substitution_matrix(matrix_name: Literal['BLOSUM62', 'BLOSUM50', 'PAM250'] = "BLOSUM62") -> np.ndarray:
     """
     Get a substitution matrix by name.
     
     Parameters
     ----------
-    matrix_name :str, default=`BLOSUM62`
+    matrix_name : str, default=`BLOSUM62`
         Name of the substitution matrix ('BLOSUM62', 'BLOSUM50', 'PAM250').
         
     Returns
@@ -102,72 +102,95 @@ def get_substitution_matrix(matrix_name: Literal['BLOSUM62', 'BLOSUM50', 'PAM250
     else:
         raise ValueError(f"Unknown substitution matrix: {matrix_name}")
 
-def get_aa_index(amino_acid: str) -> int:
+def get_reordered_matrix(target_alphabet: List[str],
+                         matrix_name: Literal['BLOSUM62'] = "BLOSUM62") -> np.ndarray:
     """
-    Get the index of an amino acid in the standard order.
-    
+    Retrieves a predefined substitution matrix and reorders its rows
+    and columns to match the provided target alphabet.
+
     Parameters
     ----------
-    amino_acid :str
-        Single-letter amino acid code.
-        
+    target_alphabet : List
+        The alphabet to reorder substitution matrix columns and rows to
+        match.
+    
+    matrix_name :str, default=`BLOSUM62`
+        Name of the substitution matrix ('BLOSUM62', 'BLOSUM50', 'PAM250').
+
     Returns
     -------
-    int
-        Index of the amino acid in the standard order.
+    reordered_matrix : np.ndarray
+        The reodered substitution matrix.
     """
-    try:
-        return _aa_order.index(amino_acid.upper())
-    except ValueError:
-        raise ValueError(f"Unknown amino acid: {amino_acid}")
+    original_matrix = get_substitution_matrix(matrix_name)
+    canonical_aa_map = {aa: i for i, aa in enumerate(_aa_order)}
+    
+    alphabet_size = len(target_alphabet)
+    reordered_matrix = np.zeros((alphabet_size, alphabet_size), dtype=np.float64)
+    
+    for i, aa1 in enumerate(target_alphabet):
+        for j, aa2 in enumerate(target_alphabet):
+            try:
+                original_idx1 = canonical_aa_map[aa1]
+                original_idx2 = canonical_aa_map[aa2]
+            except KeyError as e:
+                raise ValueError(f"Amino acid '{e.args[0]}' in target alphabet is not canonical.")
+            
+            reordered_matrix[i, j] = original_matrix[original_idx1, original_idx2]
+            
+    return reordered_matrix
 
 def get_substitution_score(aa1: str,
                            aa2: str,
-                           matrix_name: Literal['BLOSUM62', 'PAM250', 'BLOSUM50'] = "BLOSUM62"):
+                           matrix: np.ndarray,
+                           alphabet: List[str]) -> float:
     """
-    Get the substitution score for a pair of amino acids.
-    
+    Get the substitution score for a pair of amino acids from a given
+    matrix and its corresponding alphabet.
+
     Parameters
     ----------
     aa1 : str
-        First amino acid (single-letter code)
+        First amino acid (single-letter code).
     aa2 : str
-        Second amino acid (single-letter code)
-    
-    matrix_name : str, default=`BLOSUM62`
-        Name of the substitution matrix (`BLOSUM62`, `BLOSUM50`,
-        `PAM250`),
-        
+        Second amino acid (single-letter code).
+    matrix : np.ndarray
+        The substitution matrix (can be reordered).
+    alphabet : List[str]
+        The alphabet corresponding to the matrix's order.
+
     Returns
     -------
     float
         Substitution score.
     """
-    matrix = get_substitution_matrix(matrix_name)
-    i = get_aa_index(aa1)
-    j = get_aa_index(aa2)
+    try:
+        idx_map = {aa: i for i, aa in enumerate(alphabet)}
+        i = idx_map[aa1]
+        j = idx_map[aa2]
+    except KeyError as e:
+        raise ValueError(f"Amino acid '{e.args[0]}' not found in the provided alphabet.")
+    
     return matrix[i, j]
 
 def normalize_substitution_matrix(matrix: np.ndarray) -> np.ndarray:
     """
     Normalize a substitution matrix to have values between 0 and 1.
-    
+
     Parameters
-    -----------
+    ----------
     matrix : np.ndarray
-        Substitution matrix.
-        
+        The substitution matrix.
+
     Returns
     -------
-    matrix : np.ndarray        
-        Normalized substitution matrix.
+    matrix : np.ndarray
+        The normalized substitution matrix.
     """
-    # Shift to make all values non-negative
     min_val = np.min(matrix)
     if min_val < 0:
         matrix = matrix - min_val
     
-    # Scale to [0, 1]
     max_val = np.max(matrix)
     if max_val > 0:
         matrix = matrix / max_val
