@@ -3,7 +3,7 @@ requires = [
   "scikit-build-core>=0.11",
   "pybind11>=2.10",
   "numpy",
-  "scipy"
+  "scipy",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -15,7 +15,12 @@ authors = [{ name = "Matthew A. Spence", email = "matthew.spence@anu.edu.au" }]
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
-dependencies = ["numpy>=1.23"]
+dependencies = ["numpy>=1.23", "scipy>=1.16"]
+
+[project.optional-dependencies]
+test = [
+    "pytest"
+]
 
 [project.urls]
 Homepage = "https://github.com/RSCJacksonLab/softalign"
@@ -29,4 +34,13 @@ sdist.include = [
   "src/**",
   "softalign/**",
   "CMakeLists.txt"
+]
+
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
+]
+testpaths = [
+    "tests",
 ]
