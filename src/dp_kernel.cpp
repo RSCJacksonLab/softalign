@@ -38,10 +38,6 @@ float hybrid_score(const float* p,
     for (int k = 0; k < 16; k += 8) {
         __m256 pv = _mm256_loadu_ps(p + k);
         __m256 qv = _mm256_loadu_ps(q + k);
-        // Note: The original BLOSUM matrix is typically for scores, not probabilities.
-        // We assume M is structured appropriately for this dot product.
-        // A proper probabilistic interpretation would use log-odds scores.
-        // This implementation follows the user's provided logic.
         __m256 mv = _mm256_loadu_ps(M + k*20); // This assumes M is row-major for p and col-major for q
         acc = _mm256_fmadd_ps(pv, _mm256_mul_ps(mv, qv), acc);
     }
@@ -167,38 +163,63 @@ nw_affine(const ProbSeq&    a,
     float score_m = Mmat[idx(n,m)];
     float score_x = Xmat[idx(n,m)];
     float score_y = Ymat[idx(n,m)];
-    Pointer current_state;
+    
+    enum class Matrix { M, X, Y };
+    Matrix current_matrix;
     if (score_m >= score_x && score_m >= score_y) {
-        current_state = Ptr_M[idx(n,m)];
+        current_matrix = Matrix::M;
     } else if (score_x >= score_y) {
-        current_state = Pointer::GAP_IN_B; // Start in X matrix
+        current_matrix = Matrix::X;
     } else {
-        current_state = Pointer::GAP_IN_A; // Start in Y matrix
+        current_matrix = Matrix::Y;
     }
     
-    while (i > 0 || j > 0) {
-        if (current_state == Pointer::MATCH_FROM_M || current_state == Pointer::MATCH_FROM_X || current_state == Pointer::MATCH_FROM_Y) {
+    // --- Start of MINIMAL FIX ---
+
+    // Main traceback loop runs only while both sequences have characters left.
+    while (i > 0 && j > 0) {
+        if (current_matrix == Matrix::M) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, b.row(j-1));
-            Pointer prev_state = Ptr_M[idx(i,j)];
-            --i; --j;
-            current_state = prev_state;
-        } else if (current_state == Pointer::GAP_IN_B) {
+            Pointer ptr = Ptr_M[idx(i,j)];
+            i--; j--;
+            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
+            else if (ptr == Pointer::MATCH_FROM_X) current_matrix = Matrix::X;
+            else current_matrix = Matrix::Y; // MATCH_FROM_Y
+        } else if (current_matrix == Matrix::X) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, nullptr, true);
-            Pointer prev_state = Ptr_X[idx(i,j)];
-            --i;
-            current_state = (prev_state == Pointer::MATCH_FROM_M) ? Ptr_M[idx(i,j)] : Pointer::GAP_IN_B;
-        } else if (current_state == Pointer::GAP_IN_A) {
+            Pointer ptr = Ptr_X[idx(i,j)];
+            i--;
+            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
+            else current_matrix = Matrix::X; // Corresponds to GAP_IN_B
+        } else { // Matrix::Y
             push_col(bufA, nullptr, true);
             push_col(bufB, b.row(j-1));
-            Pointer prev_state = Ptr_Y[idx(i,j)];
-            --j;
-            current_state = (prev_state == Pointer::MATCH_FROM_M) ? Ptr_M[idx(i,j)] : Pointer::GAP_IN_A;
-        } else {
-            break; // Should not happen
+            Pointer ptr = Ptr_Y[idx(i,j)];
+            j--;
+            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
+            else current_matrix = Matrix::Y; // Corresponds to GAP_IN_A
         }
     }
+
+    // After the main loop, handle any remaining characters (the alignment tails).
+    
+    // If sequence 'a' has remaining characters, align them with gaps in 'b'.
+    while (i > 0) {
+        push_col(bufA, a.row(i-1));
+        push_col(bufB, nullptr, true);
+        i--;
+    }
+
+    // If sequence 'b' has remaining characters, align them with gaps in 'a'.
+    while (j > 0) {
+        push_col(bufA, nullptr, true);
+        push_col(bufB, b.row(j-1));
+        j--;
+    }
+    
+    // --- End of MINIMAL FIX ---
 
     std::reverse(bufA.begin(), bufA.end());
     std::reverse(bufB.begin(), bufB.end());
