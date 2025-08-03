@@ -1,5 +1,4 @@
 #include "softalign.hpp"
-#include <immintrin.h>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -18,40 +17,29 @@ enum class Pointer : uint8_t {
     GAP_IN_A  // Corresponds to Y matrix
 };
 
-inline float hsum(__m256 v) {
-    __m128 hi = _mm256_extractf128_ps(v, 1);
-    __m128 lo = _mm256_castps256_ps128(v);
-    __m128 s  = _mm_add_ps(hi, lo);
-    s = _mm_add_ps(s, _mm_movehl_ps(s, s));
-    s = _mm_add_ss(s, _mm_shuffle_ps(s, s, 1));
-    return _mm_cvtss_f32(s);
-}
 
 // JS + BLOSUM hybrid score
 float hybrid_score(const float* p,
                    const float* q,
-                   const float* M,
+                   const float* M, // M is a 20x20 row-major matrix
                    float         alpha)
 {
-    // BLOSUM part
-    __m256 acc = _mm256_setzero_ps();
-    for (int k = 0; k < 16; k += 8) {
-        __m256 pv = _mm256_loadu_ps(p + k);
-        __m256 qv = _mm256_loadu_ps(q + k);
-        // Note: The original BLOSUM matrix is typically for scores, not probabilities.
-        // We assume M is structured appropriately for this dot product.
-        // A proper probabilistic interpretation would use log-odds scores.
-        // This implementation follows the user's provided logic.
-        __m256 mv = _mm256_loadu_ps(M + k*20); // This assumes M is row-major for p and col-major for q
-        acc = _mm256_fmadd_ps(pv, _mm256_mul_ps(mv, qv), acc);
-    }
-    float tail = 0.f;
-    for (int k = 16; k < 20; ++k)
-        tail += p[k] * M[k*20 + k] * q[k];
-    float blosum    = hsum(acc) + tail;
-    float blos_dist = 1.f - blosum;
 
-    // Jensen–Shannon part
+    float blosum_score = 0.f;
+    for (int i = 0; i < 20; ++i) {
+        float row_sum = 0.f;
+        for (int j = 0; j < 20; ++j) {
+            row_sum += M[i*20 + j] * q[j];
+        }
+        blosum_score += p[i] * row_sum;
+    }
+
+    // This normalization step is important for combining scores.
+    // A value of 11.0 is a standard max score for BLOSUM62.
+    float max_blosum_val = 11.0; 
+    float blos_dist = 1.0f - (blosum_score / max_blosum_val);
+
+    // Jensen–Shannon part (this part was already correct)
     constexpr float EPS = 1e-8f;
     float kl1 = 0.f, kl2 = 0.f;
     for (int k = 0; k < 20; ++k) {
@@ -167,39 +155,60 @@ nw_affine(const ProbSeq&    a,
     float score_m = Mmat[idx(n,m)];
     float score_x = Xmat[idx(n,m)];
     float score_y = Ymat[idx(n,m)];
-    Pointer current_state;
+    
+    enum class Matrix { M, X, Y };
+    Matrix current_matrix;
     if (score_m >= score_x && score_m >= score_y) {
-        current_state = Ptr_M[idx(n,m)];
+        current_matrix = Matrix::M;
     } else if (score_x >= score_y) {
-        current_state = Pointer::GAP_IN_B; // Start in X matrix
+        current_matrix = Matrix::X;
     } else {
-        current_state = Pointer::GAP_IN_A; // Start in Y matrix
+        current_matrix = Matrix::Y;
     }
     
-    while (i > 0 || j > 0) {
-        if (current_state == Pointer::MATCH_FROM_M || current_state == Pointer::MATCH_FROM_X || current_state == Pointer::MATCH_FROM_Y) {
+    // Main traceback loop runs only while both sequences have characters left.
+    while (i > 0 && j > 0) {
+        if (current_matrix == Matrix::M) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, b.row(j-1));
-            Pointer prev_state = Ptr_M[idx(i,j)];
-            --i; --j;
-            current_state = prev_state;
-        } else if (current_state == Pointer::GAP_IN_B) {
+            Pointer ptr = Ptr_M[idx(i,j)];
+            i--; j--;
+            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
+            else if (ptr == Pointer::MATCH_FROM_X) current_matrix = Matrix::X;
+            else current_matrix = Matrix::Y; // MATCH_FROM_Y
+        } else if (current_matrix == Matrix::X) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, nullptr, true);
-            Pointer prev_state = Ptr_X[idx(i,j)];
-            --i;
-            current_state = (prev_state == Pointer::MATCH_FROM_M) ? Ptr_M[idx(i,j)] : Pointer::GAP_IN_B;
-        } else if (current_state == Pointer::GAP_IN_A) {
+            Pointer ptr = Ptr_X[idx(i,j)];
+            i--;
+            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
+            else current_matrix = Matrix::X; // Corresponds to GAP_IN_B
+        } else { // Matrix::Y
             push_col(bufA, nullptr, true);
             push_col(bufB, b.row(j-1));
-            Pointer prev_state = Ptr_Y[idx(i,j)];
-            --j;
-            current_state = (prev_state == Pointer::MATCH_FROM_M) ? Ptr_M[idx(i,j)] : Pointer::GAP_IN_A;
-        } else {
-            break; // Should not happen
+            Pointer ptr = Ptr_Y[idx(i,j)];
+            j--;
+            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
+            else current_matrix = Matrix::Y; // Corresponds to GAP_IN_A
         }
     }
 
+    // After the main loop, handle any remaining characters (the alignment tails).
+    
+    // If sequence 'a' has remaining characters, align them with gaps in 'b'.
+    while (i > 0) {
+        push_col(bufA, a.row(i-1));
+        push_col(bufB, nullptr, true);
+        i--;
+    }
+
+    // If sequence 'b' has remaining characters, align them with gaps in 'a'.
+    while (j > 0) {
+        push_col(bufA, nullptr, true);
+        push_col(bufB, b.row(j-1));
+        j--;
+    }
+    
     std::reverse(bufA.begin(), bufA.end());
     std::reverse(bufB.begin(), bufB.end());
 
