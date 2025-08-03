@@ -1,5 +1,4 @@
 #include "softalign.hpp"
-#include <immintrin.h>
 #include <vector>
 #include <algorithm>
 #include <cmath>
@@ -18,36 +17,29 @@ enum class Pointer : uint8_t {
     GAP_IN_A  // Corresponds to Y matrix
 };
 
-inline float hsum(__m256 v) {
-    __m128 hi = _mm256_extractf128_ps(v, 1);
-    __m128 lo = _mm256_castps256_ps128(v);
-    __m128 s  = _mm_add_ps(hi, lo);
-    s = _mm_add_ps(s, _mm_movehl_ps(s, s));
-    s = _mm_add_ss(s, _mm_shuffle_ps(s, s, 1));
-    return _mm_cvtss_f32(s);
-}
 
 // JS + BLOSUM hybrid score
 float hybrid_score(const float* p,
                    const float* q,
-                   const float* M,
+                   const float* M, // M is a 20x20 row-major matrix
                    float         alpha)
 {
-    // BLOSUM part
-    __m256 acc = _mm256_setzero_ps();
-    for (int k = 0; k < 16; k += 8) {
-        __m256 pv = _mm256_loadu_ps(p + k);
-        __m256 qv = _mm256_loadu_ps(q + k);
-        __m256 mv = _mm256_loadu_ps(M + k*20); // This assumes M is row-major for p and col-major for q
-        acc = _mm256_fmadd_ps(pv, _mm256_mul_ps(mv, qv), acc);
-    }
-    float tail = 0.f;
-    for (int k = 16; k < 20; ++k)
-        tail += p[k] * M[k*20 + k] * q[k];
-    float blosum    = hsum(acc) + tail;
-    float blos_dist = 1.f - blosum;
 
-    // Jensen–Shannon part
+    float blosum_score = 0.f;
+    for (int i = 0; i < 20; ++i) {
+        float row_sum = 0.f;
+        for (int j = 0; j < 20; ++j) {
+            row_sum += M[i*20 + j] * q[j];
+        }
+        blosum_score += p[i] * row_sum;
+    }
+
+    // This normalization step is important for combining scores.
+    // A value of 11.0 is a standard max score for BLOSUM62.
+    float max_blosum_val = 11.0; 
+    float blos_dist = 1.0f - (blosum_score / max_blosum_val);
+
+    // Jensen–Shannon part (this part was already correct)
     constexpr float EPS = 1e-8f;
     float kl1 = 0.f, kl2 = 0.f;
     for (int k = 0; k < 20; ++k) {
@@ -174,8 +166,6 @@ nw_affine(const ProbSeq&    a,
         current_matrix = Matrix::Y;
     }
     
-    // --- Start of MINIMAL FIX ---
-
     // Main traceback loop runs only while both sequences have characters left.
     while (i > 0 && j > 0) {
         if (current_matrix == Matrix::M) {
@@ -219,8 +209,6 @@ nw_affine(const ProbSeq&    a,
         j--;
     }
     
-    // --- End of MINIMAL FIX ---
-
     std::reverse(bufA.begin(), bufA.end());
     std::reverse(bufB.begin(), bufB.end());
 
