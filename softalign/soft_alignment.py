@@ -80,10 +80,10 @@ def profile_align(profile1: np.ndarray,
     Parameters
     ----------
     profile1 : np.ndarray
-        First array of aligned sequences with shape (L1, alphabet_size + 1).
+        First array of aligned sequences with shape (N1, L1, alphabet_size + 1).
     
     profile2 : np.ndarray
-        Second array of aligned sequences with shape (L2, alphabet_size + 1).
+        Second array of aligned sequences with shape (N2, L2, alphabet_size + 1).
 
     pairwise_align : callable
         The pairwise alignment function.
@@ -105,8 +105,8 @@ def profile_align(profile1: np.ndarray,
     aligned_profile1 : np.ndarray
         Aligned profile 1 with shape (N1, L', alphabet_size + 1).
         
-    aligned_profile2 : np.ndararay
-        Aligned profile 2 with shape (N1, L', alphabet_size + 1).
+    aligned_profile2 : np.ndarray
+        Aligned profile 2 with shape (N2, L', alphabet_size + 1).
     """
     # Convert profiles to average probability distributions per column
     avg_profile1 = np.mean(profile1, axis=0)
@@ -124,29 +124,39 @@ def profile_align(profile1: np.ndarray,
     
     align_length = aligned_avg1.shape[0]
 
+    # Initialize aligned profiles with full gaps
     aligned_profile1 = np.zeros((profile1.shape[0], align_length, alphabet_size + 1))
     aligned_profile2 = np.zeros((profile2.shape[0], align_length, alphabet_size + 1))
-    
+    aligned_profile1[:, :, alphabet_size] = 1.0
+    aligned_profile2[:, :, alphabet_size] = 1.0
+
     pos1, pos2 = 0, 0
     for i in range(align_length):
-        is_gap1 = aligned_avg1[i, alphabet_size] > 0.5
-        is_gap2 = aligned_avg2[i, alphabet_size] > 0.5
+        # Use a robust check for gaps based on which column has the max probability
+        is_gap1 = np.argmax(aligned_avg1[i]) == alphabet_size
+        is_gap2 = np.argmax(aligned_avg2[i]) == alphabet_size
         
-        if not is_gap1:
+        # --- START OF FIX: Corrected Traceback Logic ---
+        if not is_gap1 and not is_gap2:
+            # State 1: Match/Mismatch - copy from both original profiles
             if pos1 < profile1.shape[1]:
                 aligned_profile1[:, i, :] = profile1[:, pos1, :]
-            else:
-                aligned_profile1[:, i, :] = 0
-                aligned_profile1[:, i, alphabet_size] = 1.0
-            pos1 += 1
-        
-        if not is_gap2:
             if pos2 < profile2.shape[1]:
                 aligned_profile2[:, i, :] = profile2[:, pos2, :]
-            else:
-                aligned_profile2[:, i, :] = 0
-                aligned_profile2[:, i, alphabet_size] = 1.0
+            pos1 += 1
             pos2 += 1
+        elif not is_gap1 and is_gap2:
+            # State 2: Gap in Profile 2 - copy from profile 1 only
+            if pos1 < profile1.shape[1]:
+                aligned_profile1[:, i, :] = profile1[:, pos1, :]
+            pos1 += 1
+        elif is_gap1 and not is_gap2:
+            # State 3: Gap in Profile 1 - copy from profile 2 only
+            if pos2 < profile2.shape[1]:
+                aligned_profile2[:, i, :] = profile2[:, pos2, :]
+            pos2 += 1
+        # else: Gap in both profiles, do nothing as they are already initialized to gaps.
+        # --- END OF FIX ---
 
     return aligned_profile1, aligned_profile2, score
 
