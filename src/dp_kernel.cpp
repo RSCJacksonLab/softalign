@@ -1,5 +1,3 @@
-// In softalign/src/dp_kernel.cpp
-
 #include "softalign.hpp"
 #include <vector>
 #include <algorithm>
@@ -12,13 +10,10 @@ namespace {
 // Enum to make pointer matrix states clearer
 enum class Pointer : uint8_t {
     STOP = 0,
-    MATCH_FROM_M,
-    MATCH_FROM_X,
-    MATCH_FROM_Y,
-    GAP_IN_B, // Corresponds to X matrix
-    GAP_IN_A  // Corresponds to Y matrix
+    FROM_M,
+    FROM_X,
+    FROM_Y
 };
-
 
 // JS + BLOSUM hybrid score
 float hybrid_score(const float* p,
@@ -26,7 +21,7 @@ float hybrid_score(const float* p,
                    const float* M, // M is a 20x20 row-major matrix
                    float         alpha)
 {
-
+    // Correctly calculates the full substitution score: S = p^T * M * q
     float blosum_score = 0.f;
     for (int i = 0; i < 20; ++i) {
         float row_sum = 0.f;
@@ -36,12 +31,11 @@ float hybrid_score(const float* p,
         blosum_score += p[i] * row_sum;
     }
 
-    // This normalization step is important for combining scores.
-    // A value of 11.0 is a standard max score for BLOSUM62.
-    float max_blosum_val = 11.0; 
+    // Normalize the score into a distance
+    float max_blosum_val = 11.0; // Standard for BLOSUM62
     float blos_dist = 1.0f - (blosum_score / max_blosum_val);
 
-    // Jensen–Shannon part (this part was already correct)
+    // Jensen–Shannon part
     constexpr float EPS = 1e-8f;
     float kl1 = 0.f, kl2 = 0.f;
     for (int k = 0; k < 20; ++k) {
@@ -103,7 +97,7 @@ nw_affine(const ProbSeq&    a,
         for (int j = 1; j <= m; ++j) {
             float s = -hybrid_score(a.row(i-1), b.row(j-1), M.data(), alpha);
 
-            // M matrix
+            // M matrix (match/mismatch)
             float m_from_m = M_scores[idx(i-1,j-1)] + s;
             float m_from_x = X_scores[idx(i-1,j-1)] + s;
             float m_from_y = Y_scores[idx(i-1,j-1)] + s;
@@ -148,19 +142,15 @@ nw_affine(const ProbSeq&    a,
     bufB.reserve((n+m)*21);
     int i = n, j = m;
 
-    float score_m = Mmat[idx(n,m)];
-    float score_x = Xmat[idx(n,m)];
-    float score_y = Ymat[idx(n,m)];
-    
     enum class Matrix { M, X, Y };
     Matrix current_matrix;
-    if (score_m >= score_x && score_m >= score_y) {
-        current_matrix = Matrix::M;
-    } else if (score_x >= score_y) {
-        current_matrix = Matrix::X;
-    } else {
-        current_matrix = Matrix::Y;
-    }
+    float score_m = M_scores[idx(n,m)];
+    float score_x = X_scores[idx(n,m)];
+    float score_y = Y_scores[idx(n,m)];
+
+    if (score_m >= score_x && score_m >= score_y) current_matrix = Matrix::M;
+    else if (score_x >= score_y) current_matrix = Matrix::X;
+    else current_matrix = Matrix::Y;
     
     // Main traceback loop runs only while both sequences have characters left.
     while (i > 0 && j > 0) {
@@ -168,24 +158,24 @@ nw_affine(const ProbSeq&    a,
             push_col(bufA, a.row(i-1));
             push_col(bufB, b.row(j-1));
             Pointer ptr = Ptr_M[idx(i,j)];
-            i--; j--;
-            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
-            else if (ptr == Pointer::MATCH_FROM_X) current_matrix = Matrix::X;
-            else current_matrix = Matrix::Y; // MATCH_FROM_Y
+            --i; --j;
+            if (ptr == Pointer::FROM_M) current_matrix = Matrix::M;
+            else if (ptr == Pointer::FROM_X) current_matrix = Matrix::X;
+            else current_matrix = Matrix::Y;
         } else if (current_matrix == Matrix::X) {
             push_col(bufA, a.row(i-1));
             push_col(bufB, nullptr, true);
             Pointer ptr = Ptr_X[idx(i,j)];
-            i--;
-            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
-            else current_matrix = Matrix::X; // Corresponds to GAP_IN_B
+            --i;
+            if (ptr == Pointer::FROM_M) current_matrix = Matrix::M;
+            else current_matrix = Matrix::X;
         } else { // Matrix::Y
             push_col(bufA, nullptr, true);
             push_col(bufB, b.row(j-1));
             Pointer ptr = Ptr_Y[idx(i,j)];
-            j--;
-            if (ptr == Pointer::MATCH_FROM_M) current_matrix = Matrix::M;
-            else current_matrix = Matrix::Y; // Corresponds to GAP_IN_A
+            --j;
+            if (ptr == Pointer::FROM_M) current_matrix = Matrix::M;
+            else current_matrix = Matrix::Y;
         }
     }
 
@@ -195,16 +185,16 @@ nw_affine(const ProbSeq&    a,
     while (i > 0) {
         push_col(bufA, a.row(i-1));
         push_col(bufB, nullptr, true);
-        i--;
+        --i;
     }
 
     // If sequence 'b' has remaining characters, align them with gaps in 'a'.
     while (j > 0) {
         push_col(bufA, nullptr, true);
         push_col(bufB, b.row(j-1));
-        j--;
+        --j;
     }
-    
+
     std::reverse(bufA.begin(), bufA.end());
     std::reverse(bufB.begin(), bufB.end());
 
