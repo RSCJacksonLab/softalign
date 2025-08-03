@@ -1,3 +1,5 @@
+// In softalign/src/dp_kernel.cpp
+
 #include "softalign.hpp"
 #include <vector>
 #include <algorithm>
@@ -84,23 +86,17 @@ nw_affine(const ProbSeq&    a,
     int n = a.L, m = b.L;
     auto idx = [&](int i,int j){ return i*(m+1) + j; };
 
-    std::vector<f32> Mmat((n+1)*(m+1), NEG_INF),
-                     Xmat((n+1)*(m+1), NEG_INF),
-                     Ymat((n+1)*(m+1), NEG_INF);
+    std::vector<f32> M_scores((n+1)*(m+1), NEG_INF),
+                     X_scores((n+1)*(m+1), NEG_INF),
+                     Y_scores((n+1)*(m+1), NEG_INF);
     std::vector<Pointer> Ptr_M((n+1)*(m+1)),
                          Ptr_X((n+1)*(m+1)),
                          Ptr_Y((n+1)*(m+1));
 
-    Mmat[idx(0,0)] = 0.f;
+    M_scores[idx(0,0)] = 0.f;
 
-    for (int i = 1; i <= n; ++i) {
-        Xmat[idx(i,0)] = -gap_open - (i-1)*gap_ext;
-        Ptr_X[idx(i,0)] = Pointer::GAP_IN_B;
-    }
-    for (int j = 1; j <= m; ++j) {
-        Ymat[idx(0,j)] = -gap_open - (j-1)*gap_ext;
-        Ptr_Y[idx(0,j)] = Pointer::GAP_IN_A;
-    }
+    for (int i = 1; i <= n; ++i) X_scores[idx(i,0)] = -gap_open - (i-1)*gap_ext;
+    for (int j = 1; j <= m; ++j) Y_scores[idx(0,j)] = -gap_open - (j-1)*gap_ext;
 
     // Forward DP
     for (int i = 1; i <= n; ++i) {
@@ -108,40 +104,40 @@ nw_affine(const ProbSeq&    a,
             float s = -hybrid_score(a.row(i-1), b.row(j-1), M.data(), alpha);
 
             // M matrix
-            float m_from_m = Mmat[idx(i-1,j-1)] + s;
-            float m_from_x = Xmat[idx(i-1,j-1)] + s;
-            float m_from_y = Ymat[idx(i-1,j-1)] + s;
+            float m_from_m = M_scores[idx(i-1,j-1)] + s;
+            float m_from_x = X_scores[idx(i-1,j-1)] + s;
+            float m_from_y = Y_scores[idx(i-1,j-1)] + s;
             if (m_from_m >= m_from_x && m_from_m >= m_from_y) {
-                Mmat[idx(i,j)] = m_from_m;
-                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_M;
+                M_scores[idx(i,j)] = m_from_m;
+                Ptr_M[idx(i,j)] = Pointer::FROM_M;
             } else if (m_from_x >= m_from_y) {
-                Mmat[idx(i,j)] = m_from_x;
-                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_X;
+                M_scores[idx(i,j)] = m_from_x;
+                Ptr_M[idx(i,j)] = Pointer::FROM_X;
             } else {
-                Mmat[idx(i,j)] = m_from_y;
-                Ptr_M[idx(i,j)] = Pointer::MATCH_FROM_Y;
+                M_scores[idx(i,j)] = m_from_y;
+                Ptr_M[idx(i,j)] = Pointer::FROM_Y;
             }
 
             // X matrix (gap in B)
-            float x_open = Mmat[idx(i-1,j)] - gap_open;
-            float x_ext = Xmat[idx(i-1,j)] - gap_ext;
+            float x_open = M_scores[idx(i-1,j)] - gap_open;
+            float x_ext = X_scores[idx(i-1,j)] - gap_ext;
             if (x_open >= x_ext) {
-                Xmat[idx(i,j)] = x_open;
-                Ptr_X[idx(i,j)] = Pointer::MATCH_FROM_M; // came from M
+                X_scores[idx(i,j)] = x_open;
+                Ptr_X[idx(i,j)] = Pointer::FROM_M;
             } else {
-                Xmat[idx(i,j)] = x_ext;
-                Ptr_X[idx(i,j)] = Pointer::GAP_IN_B; // came from X
+                X_scores[idx(i,j)] = x_ext;
+                Ptr_X[idx(i,j)] = Pointer::FROM_X;
             }
 
             // Y matrix (gap in A)
-            float y_open = Mmat[idx(i,j-1)] - gap_open;
-            float y_ext = Ymat[idx(i,j-1)] - gap_ext;
+            float y_open = M_scores[idx(i,j-1)] - gap_open;
+            float y_ext = Y_scores[idx(i,j-1)] - gap_ext;
             if (y_open >= y_ext) {
-                Ymat[idx(i,j)] = y_open;
-                Ptr_Y[idx(i,j)] = Pointer::MATCH_FROM_M; // came from M
+                Y_scores[idx(i,j)] = y_open;
+                Ptr_Y[idx(i,j)] = Pointer::FROM_M;
             } else {
-                Ymat[idx(i,j)] = y_ext;
-                Ptr_Y[idx(i,j)] = Pointer::GAP_IN_A; // came from Y
+                Y_scores[idx(i,j)] = y_ext;
+                Ptr_Y[idx(i,j)] = Pointer::FROM_Y;
             }
         }
     }
