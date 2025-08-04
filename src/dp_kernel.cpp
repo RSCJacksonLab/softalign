@@ -178,7 +178,7 @@ nw_affine(const ProbSeq&    a,
             else current_matrix = Matrix::Y;
         }
     }
-
+    
     // After the main loop, handle any remaining characters (the alignment tails).
     
     // If sequence 'a' has remaining characters, align them with gaps in 'b'.
@@ -209,3 +209,4 @@ nw_affine(const ProbSeq&    a,
 }
 
 } // namespace sa
+
