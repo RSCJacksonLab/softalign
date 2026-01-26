@@ -2,10 +2,10 @@ name: Build Wheels
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ main, dev, "feature/**" ]
     tags: [ "v*" ]
   pull_request:
-    branches: [ main, dev ]
+    branches: [ main, dev, "feature/**" ]
   workflow_dispatch:
 
 jobs:
