@@ -1,7 +1,7 @@
 [build-system]
 requires = [
   "scikit-build-core>=0.11",
-  "pybind11>=2.10",
+  "pybind11>=2.13.0",
   "numpy",
   "scipy",
 ]
@@ -35,6 +35,16 @@ sdist.include = [
   "softalign/**",
   "CMakeLists.txt"
 ]
+
+[tool.cibuildwheel]
+build = "cp310-* cp311-* cp312-* cp313-*"
+skip = "pp* *-musllinux*"
+test-requires = ["numpy"]
+test-command = "python -c \"import numpy as np; import softalign; from softalign._softalign import nw_affine; a=np.zeros((2,20),dtype=np.float32); a[:,0]=1; subst=np.eye(20,dtype=np.float32); nw_affine(a,a,subst,10.0,0.5,0.5); print('ok')\""
+
+[tool.cibuildwheel.macos]
+archs = ["arm64", "universal2"]
+environment = "MACOSX_DEPLOYMENT_TARGET=11.0"
 
 
 [tool.pytest.ini_options]

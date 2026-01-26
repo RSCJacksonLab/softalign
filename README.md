@@ -3,7 +3,13 @@ A high-performance Python package for aligning "soft" biological sequences (prob
 
 ## Installation
 
-Install directly from the source repository:
+Install from PyPI (recommended; uses prebuilt wheels on macOS):
+
+```bash
+pip install softalign
+```
+
+Install directly from the source repository (developer path; requires a C++ toolchain):
 
 ```bash
 pip install git+https://github.com/RSCJacksonLab/softalign.git
@@ -53,6 +59,19 @@ pip install -e '.[test]'
 # Run tests
 pytest
 ```
+
+## Maintainer Notes
+- Supported Python versions: 3.10, 3.11, 3.12, 3.13.
+- Wheels are built for macOS (arm64 + universal2) and Linux x86_64.
+- Release process:
+  1) Bump `version` in `pyproject.toml`.
+  2) Tag the commit as `vX.Y.Z` and publish a GitHub release.
+  3) The `Publish to PyPI` workflow builds wheels + sdist and uploads via trusted publishing.
+- If a wheel build fails:
+  - Check the `Build Wheels` workflow logs for CMake/OpenMP errors.
+  - macOS builds require `libomp` in CI (installed via Homebrew).
+  - Re-run the failed job after fixing CMake or dependency issues.
+- The sdist path is kept for developers; building from source on macOS requires Xcode CLT.
 
 ## License
 This project is licensed under the MIT License. See the LICENSE file for details.
