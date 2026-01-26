@@ -15,9 +15,6 @@ Install directly from the source repository (developer path; requires a C++ tool
 pip install git+https://github.com/RSCJacksonLab/softalign.git
 ```
 
-Note: installing from a Git URL always builds from source and will not use
-prebuilt wheels. For a no-toolchain install on macOS, use the PyPI release.
-
 ## Usage Example
 
 ```python
