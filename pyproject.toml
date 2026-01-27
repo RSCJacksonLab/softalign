@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "softalign"
-version = "0.1.0"
+version = "1.0.0"
 description = "Fast probabilistic protein soft sequence alignment with AVX"
 authors = [{ name = "Matthew A. Spence", email = "matthew.spence@anu.edu.au" }]
 readme = "README.md"
