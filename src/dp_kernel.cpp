@@ -66,6 +66,24 @@ inline void push_col(std::vector<f32>& dst,
     }
 }
 
+inline void reverse_columns(std::vector<f32>& buf, int col_width)
+{
+    const std::size_t ncols = buf.size() / static_cast<std::size_t>(col_width);
+    if (ncols <= 1) {
+        return;
+    }
+    std::vector<f32> out(buf.size());
+    for (std::size_t col = 0; col < ncols; ++col) {
+        const std::size_t src_col = ncols - 1 - col;
+        std::copy_n(
+            buf.data() + src_col * static_cast<std::size_t>(col_width),
+            static_cast<std::size_t>(col_width),
+            out.data() + col * static_cast<std::size_t>(col_width)
+        );
+    }
+    buf.swap(out);
+}
+
 } // anonymous namespace
 
 // Needleman–Wunsch with affine gaps
@@ -195,8 +213,9 @@ nw_affine(const ProbSeq&    a,
         --j;
     }
 
-    std::reverse(bufA.begin(), bufA.end());
-    std::reverse(bufB.begin(), bufB.end());
+    // Buffers are constructed in reverse column order; flip by column, not element.
+    reverse_columns(bufA, 21);
+    reverse_columns(bufB, 21);
 
     int L = static_cast<int>(bufA.size() / 21);
     float score = std::max({score_m, score_x, score_y});
@@ -209,4 +228,3 @@ nw_affine(const ProbSeq&    a,
 }
 
 } // namespace sa
-
