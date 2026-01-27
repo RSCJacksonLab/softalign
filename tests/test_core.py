@@ -126,6 +126,19 @@ def test_align_soft_sequences(identical_soft_sequences):
     assert np.allclose(alignment[0], alignment[1])
     assert score < 0
 
+def test_identical_sequences_preserve_channels_without_spurious_gaps():
+    """
+    Identical one-hot sequences should not introduce gap-channel mass.
+    This guards against reversing the flat buffer element-wise instead of by column.
+    """
+    seq = np.zeros((4, ALPHABET_SIZE), dtype=np.float32)
+    seq[:, 0] = 1.0  # all "A"
+    alignment, _ = align_soft_sequences([seq, seq.copy()], ALPHABET)
+    aligned = alignment[0]
+    gap_channel = aligned[:, ALPHABET_SIZE]
+    assert np.allclose(gap_channel, 0.0)
+    assert np.allclose(aligned[:, 0], 1.0)
+
 def test_batch_pairwise_distance():
     """
     Test the calculation of pairwise distances between columns.
