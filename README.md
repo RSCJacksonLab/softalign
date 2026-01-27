@@ -66,12 +66,15 @@ pytest
 ## Maintainer Notes
 - Supported Python versions: 3.10, 3.11, 3.12, 3.13.
 - Wheels are built for macOS (arm64 + universal2) and Linux x86_64.
+- Linux cp313 wheels are skipped on manylinux2014 due to SciPy wheel availability.
 - Release process:
   1) Bump `version` in `pyproject.toml`.
   2) Tag the commit as `vX.Y.Z` and publish a GitHub release.
   3) The `Publish to PyPI` workflow builds wheels + sdist and uploads via trusted publishing.
 - If a wheel build fails:
   - Check the `Build Wheels` workflow logs for CMake/compiler errors.
+  - On Linux, SciPy compatibility is the most common failure mode; see the
+    version markers in `pyproject.toml`.
   - Re-run the failed job after fixing CMake or dependency issues.
 - The sdist path is kept for developers; building from source on macOS requires Xcode CLT.
 

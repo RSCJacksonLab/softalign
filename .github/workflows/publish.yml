@@ -26,7 +26,7 @@ jobs:
         uses: pypa/cibuildwheel@v2.19.2
         env:
           CIBW_BUILD: "cp310-* cp311-* cp312-* cp313-*"
-          CIBW_SKIP: "pp* *-musllinux*"
+          CIBW_SKIP: "pp* *-musllinux* cp313-manylinux*"
           CIBW_BUILD_VERBOSITY: "1"
 
       - name: Upload wheels
