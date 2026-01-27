@@ -8,7 +8,6 @@ endif()
 set(PYBIND11_FINDPYTHON ON)
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
 find_package(pybind11 CONFIG REQUIRED)
-find_package(OpenMP REQUIRED)
 include(CheckIncludeFileCXX)
 
 # Provide a clearer failure mode for source builds on macOS without a toolchain.
@@ -62,7 +61,6 @@ target_compile_options(_softalign PRIVATE -O3 -ffast-math)
 if(SOFTALIGN_NATIVE_OPT)
   target_compile_options(_softalign PRIVATE -march=native)
 endif()
-target_link_libraries(_softalign PRIVATE OpenMP::OpenMP_CXX)
 
 # Fail fast with actionable guidance if the standard library headers are absent.
 if(NOT SOFTALIGN_HAVE_VECTOR AND NOT SOFTALIGN_LIBCXX_INCLUDE_DIR)

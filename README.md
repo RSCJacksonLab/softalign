@@ -1,5 +1,5 @@
 # softalign
-A high-performance Python package for aligning "soft" biological sequences (probability distributions) using a C++ backend accelerated with AVX and OpenMP.
+A high-performance Python package for aligning "soft" biological sequences (probability distributions) using a C++ backend accelerated with AVX.
 
 ## Installation
 
@@ -71,8 +71,7 @@ pytest
   2) Tag the commit as `vX.Y.Z` and publish a GitHub release.
   3) The `Publish to PyPI` workflow builds wheels + sdist and uploads via trusted publishing.
 - If a wheel build fails:
-  - Check the `Build Wheels` workflow logs for CMake/OpenMP errors.
-  - macOS builds require `libomp` in CI (installed via Homebrew).
+  - Check the `Build Wheels` workflow logs for CMake/compiler errors.
   - Re-run the failed job after fixing CMake or dependency issues.
 - The sdist path is kept for developers; building from source on macOS requires Xcode CLT.
 
