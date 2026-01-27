@@ -2,20 +2,24 @@
 requires = [
   "scikit-build-core>=0.11",
   "pybind11>=2.13.0",
-  "numpy",
-  "scipy",
 ]
 build-backend = "scikit_build_core.build"
 
 [project]
 name = "softalign"
 version = "0.1.0"
-description = "Fast probabilistic protein soft sequence alignment with AVX and OpenMP"
+description = "Fast probabilistic protein soft sequence alignment with AVX"
 authors = [{ name = "Matthew A. Spence", email = "matthew.spence@anu.edu.au" }]
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.9"
-dependencies = ["numpy>=1.23", "scipy>=1.16"]
+dependencies = [
+  "numpy>=1.23",
+  # manylinux2014-compatible SciPy wheels are currently <1.16 for py<=3.12
+  "scipy>=1.10,<1.16; python_version < '3.13'",
+  # py313+ needs a newer SciPy; wheels exist on macOS but not manylinux2014
+  "scipy>=1.17; python_version >= '3.13'",
+]
 
 [project.optional-dependencies]
 test = [
@@ -38,13 +42,18 @@ sdist.include = [
 
 [tool.cibuildwheel]
 build = "cp310-* cp311-* cp312-* cp313-*"
-skip = "pp* *-musllinux*"
+# Skip cp313 on manylinux2014 due to SciPy wheel availability.
+skip = "pp* *-musllinux* cp313-manylinux*"
 test-requires = ["numpy"]
 test-command = "python -c \"import numpy as np; import softalign; from softalign._softalign import nw_affine; a=np.zeros((2,20),dtype=np.float32); a[:,0]=1; subst=np.eye(20,dtype=np.float32); nw_affine(a,a,subst,10.0,0.5,0.5); print('ok')\""
 
 [tool.cibuildwheel.macos]
 archs = ["arm64", "universal2"]
 environment = "MACOSX_DEPLOYMENT_TARGET=11.0"
+
+[tool.cibuildwheel.linux]
+# i686 pulls source builds for numpy/scipy; restrict to x86_64 wheels.
+archs = ["x86_64"]
 
 
 [tool.pytest.ini_options]
